@@ -80,6 +80,16 @@ class SecurityConfig:
     SALT_ROTATION_INTERVAL = 300  # New salt every 5 minutes
     AUDIT_LOG_ENABLED = True      # Security event logging
 
+# Backup and Recovery Configuration
+BACKUP_CONFIG = {
+    'backup_enabled': True,
+    'backup_dir': os.path.expanduser('~/.secure_vault/backups'),
+    'backup_retention': 5,           # Number of backups to keep
+    'backup_schedule': 24,           # Backup interval in hours (0 to disable)
+    'metadata_backup_enabled': True,
+    'auto_recovery': True,           # Attempt recovery on startup if metadata is corrupted
+}
+
 # Performance Optimization
 class PerformanceConfig:
     """Performance tuning parameters"""
