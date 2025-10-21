@@ -31,7 +31,7 @@ from crypto_utils import (
     secure_wipe,
     derive_key_hkdf_sha3_512
 )
-from secure_memory import SecureBuffer
+from secure_memory import SecureBytes
 
 logger = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Existing imports from your project
 from crypto_utils import secure_random_bytes, secure_compare, secure_wipe
-from secure_memory import SecureBuffer
+from secure_memory import SecureBytes
 from config import BACKUP_CONFIG
 
 # Constants
