@@ -17,9 +17,12 @@ from PyQt6.QtGui import QIcon, QAction
 from PyQt6.QtCore import Qt, QSize
 
 # Import from config and local modules
-from LINUX_GUI.config import styles, settings as app_settings
+from LINUX_GUI.config import styles, settings as app_settings, themes
+from LINUX_GUI.utils.system_tray import SystemTrayManager
+from LINUX_GUI.utils.clipboard_security import ClipboardSecurityManager
 from .dialogs import SettingsDialog, AccountDialog, HelpDialog, AboutDialog
 from .widgets import Header, Footer
+from .views import EncryptView, DecryptView, KeyManagerView
 
 
 class MainWindow(QMainWindow):
@@ -30,13 +33,31 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("SecureVault")
         self.setMinimumSize(1000, 700)
-        
+
         # Load settings
         self.settings = app_settings.get_settings()
-        
+
+        # Initialize theme manager
+        self.theme_manager = themes.ThemeManager()
+        self.theme_manager.set_theme(self.settings.get('app', {}).get('theme', 'dark'))
+
+        # Initialize clipboard security
+        self.clipboard_manager = ClipboardSecurityManager(timeout_ms=30000, parent=self)
+
+        # Initialize system tray (if available)
+        self.system_tray = None
+        if SystemTrayManager.is_system_tray_available():
+            self.system_tray = SystemTrayManager(parent=self)
+            self.system_tray.show_window.connect(self.show)
+            self.system_tray.quit_app.connect(self.close)
+            self.system_tray.encrypt_requested.connect(self.show_encrypt_view)
+            self.system_tray.decrypt_requested.connect(self.show_decrypt_view)
+            self.system_tray.key_manager_requested.connect(self.show_key_manager)
+            self.system_tray.show()
+
         # Set up the UI
         self.setup_ui()
-        
+
         # Apply styles
         self.apply_styles()
     
@@ -163,35 +184,35 @@ class MainWindow(QMainWindow):
     def create_main_menu(self):
         """Create the main menu widget."""
         from PyQt6.QtWidgets import QVBoxLayout, QLabel, QPushButton
-        
+
         menu_widget = QWidget()
         layout = QVBoxLayout(menu_widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setContentsMargins(0, 40, 0, 40)
-        
+
         # Title with modern styling
         title = QLabel("Welcome to SecureVault")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         # Subtitle
         subtitle = QLabel("Secure File Encryption & Management")
         subtitle.setObjectName("subtitle")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         # Buttons
         btn_encrypt = QPushButton("Encrypt File")
         btn_encrypt.clicked.connect(self.show_encrypt_view)
         btn_encrypt.setMinimumSize(240, 48)
-        
+
         btn_decrypt = QPushButton("Decrypt File")
         btn_decrypt.clicked.connect(self.show_decrypt_view)
         btn_decrypt.setMinimumSize(240, 48)
-        
+
         btn_key_manager = QPushButton("Key Manager")
         btn_key_manager.clicked.connect(self.show_key_manager)
         btn_key_manager.setMinimumSize(240, 48)
-        
+
         # Button layout
         button_layout = QVBoxLayout()
         button_layout.setSpacing(12)
@@ -199,7 +220,7 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(btn_encrypt)
         button_layout.addWidget(btn_decrypt)
         button_layout.addWidget(btn_key_manager)
-        
+
         # Add widgets to layout with proper spacing
         layout.addStretch()
         layout.addWidget(title)
@@ -207,13 +228,27 @@ class MainWindow(QMainWindow):
         layout.addSpacing(40)
         layout.addLayout(button_layout)
         layout.addStretch()
-        
-        # Add to stacked widget
+
+        # Add to stacked widget (index 0)
         self.stacked_widget.addWidget(menu_widget)
+
+        # Create and add views
+        self.encrypt_view = EncryptView()
+        self.encrypt_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.encrypt_view)  # index 1
+
+        self.decrypt_view = DecryptView()
+        self.decrypt_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.decrypt_view)  # index 2
+
+        self.key_manager_view = KeyManagerView()
+        self.key_manager_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.key_manager_view)  # index 3
     
     def apply_styles(self):
         """Apply styles to the window and its children."""
-        self.setStyleSheet(styles.BASE_STYLE)
+        stylesheet = self.theme_manager.get_stylesheet()
+        self.setStyleSheet(stylesheet)
     
     def toggle_fullscreen(self, checked):
         """Toggle fullscreen mode."""
@@ -223,29 +258,45 @@ class MainWindow(QMainWindow):
             self.showNormal()
     
     # Slots for actions
+    def show_main_menu(self):
+        """Show the main menu."""
+        self.stacked_widget.setCurrentIndex(0)
+        self.footer.set_status("Ready")
+
     def show_encrypt_view(self):
         """Show the encrypt file view."""
-        self.footer.set_status("Preparing to encrypt file...")
-        QMessageBox.information(self, "Info", "Encrypt view will be implemented here")
-        self.footer.set_status("Ready", 3000)
-    
+        self.stacked_widget.setCurrentIndex(1)
+        self.footer.set_status("Ready to encrypt files")
+
     def show_decrypt_view(self):
         """Show the decrypt file view."""
-        self.footer.set_status("Preparing to decrypt file...")
-        QMessageBox.information(self, "Info", "Decrypt view will be implemented here")
-        self.footer.set_status("Ready", 3000)
-    
+        self.stacked_widget.setCurrentIndex(2)
+        self.footer.set_status("Ready to decrypt files")
+
     def show_key_manager(self):
         """Show the key manager."""
-        self.footer.set_status("Opening Key Manager...")
-        QMessageBox.information(self, "Info", "Key manager will be implemented here")
-        self.footer.set_status("Ready", 3000)
+        self.stacked_widget.setCurrentIndex(3)
+        self.footer.set_status("Key Manager opened")
+        # Refresh key list when opening
+        if hasattr(self, 'key_manager_view'):
+            self.key_manager_view.load_keys()
     
     def show_settings(self):
         """Show the settings dialog."""
-        dialog = SettingsDialog(self)
+        dialog = SettingsDialog(current_theme=self.theme_manager.get_theme(), parent=self)
+        dialog.theme_changed.connect(self.change_theme)
         if dialog.exec():
             self.footer.set_status("Settings saved", 3000)
+
+    def change_theme(self, theme_name):
+        """Change the application theme.
+
+        Args:
+            theme_name: Theme name ('dark' or 'light')
+        """
+        self.theme_manager.set_theme(theme_name)
+        self.apply_styles()
+        self.footer.set_status(f"Theme changed to {theme_name}", 3000)
     
     def show_account(self):
         """Show the account dialog."""
