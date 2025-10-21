@@ -1,4 +1,7 @@
 """
 Custom widgets for SecureVault Linux GUI
 """
-# This file makes the widgets directory a Python package
+from .secure_password_input import SecurePasswordInput
+from .file_drop_zone import FileDropZone
+
+__all__ = ['SecurePasswordInput', 'FileDropZone']
