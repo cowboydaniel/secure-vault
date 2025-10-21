@@ -139,12 +139,19 @@ class KeyManagerView(QWidget):
                 row = self.key_table.rowCount()
                 self.key_table.insertRow(row)
 
-                # Add key data
-                self.key_table.setItem(row, 0, QTableWidgetItem(str(key_info.get('key_id', 'N/A'))[:16]))
-                self.key_table.setItem(row, 1, QTableWidgetItem(key_info.get('key_type', 'Unknown')))
-                self.key_table.setItem(row, 2, QTableWidgetItem(key_info.get('created_at', 'Unknown')))
-                self.key_table.setItem(row, 3, QTableWidgetItem(key_info.get('state', 'Unknown')))
-                self.key_table.setItem(row, 4, QTableWidgetItem(str(key_info.get('use_count', 0))))
+                # Add key data (key_info is a KeyMetadata dataclass)
+                # Format timestamp to readable date
+                from datetime import datetime
+                created_str = datetime.fromtimestamp(key_info.created_at).strftime('%Y-%m-%d %H:%M') if key_info.created_at else 'Unknown'
+
+                # Get state from lifecycle
+                state_str = key_info.lifecycle.state.name if hasattr(key_info, 'lifecycle') else ('ACTIVE' if key_info.enabled else 'INACTIVE')
+
+                self.key_table.setItem(row, 0, QTableWidgetItem(str(key_info.key_id)[:16]))
+                self.key_table.setItem(row, 1, QTableWidgetItem(key_info.key_type.value))  # KeyType is an enum
+                self.key_table.setItem(row, 2, QTableWidgetItem(created_str))
+                self.key_table.setItem(row, 3, QTableWidgetItem(state_str))
+                self.key_table.setItem(row, 4, QTableWidgetItem(str(key_info.usage_count)))
 
             # Update statistics
             self.update_statistics()
@@ -163,7 +170,7 @@ class KeyManagerView(QWidget):
             active = sum(
                 1 for row in range(total)
                 if self.key_table.item(row, 3) and
-                self.key_table.item(row, 3).text() == 'active'
+                self.key_table.item(row, 3).text() == 'ACTIVE'
             )
 
             self.total_keys_label.setText(str(total))
