@@ -122,8 +122,7 @@ class KeyManagerView(QWidget):
     def load_keys(self):
         """Load keys from the key manager."""
         try:
-            from key_manager import KeyManager
-            from constants import KeyType
+            from key_manager import KeyManager, KeyType
 
             # Initialize key manager if needed
             if self.key_manager is None:
@@ -178,10 +177,10 @@ class KeyManagerView(QWidget):
     def generate_key(self):
         """Generate a new encryption key."""
         try:
-            from constants import KeyType
+            from key_manager import KeyType
 
             # Show dialog to select key type
-            key_types = ['MASTER', 'STORAGE', 'SESSION', 'OTP', 'IDA']
+            key_types = ['OTP', 'MLKEM', 'SYMMETRIC', 'MASTER', 'BACKUP']
             key_type, ok = QInputDialog.getItem(
                 self,
                 "Generate Key",
