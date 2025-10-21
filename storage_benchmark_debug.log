@@ -1,0 +1,1289 @@
+2025-08-23 01:15:34,451 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-08-23 01:15:34,452 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-08-23 01:15:34,452 - root - DEBUG - [BENCHMARK] Test data checksum: df8a7748128893a3443f1aab4fdc1c9e...134f91df39dfcfc74c683260f09b2f0c
+2025-08-23 01:15:34,452 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:15:34,515 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:15:34,516 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:15:34,516 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:15:34,517 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:15:34,517 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:15:34,525 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:34,541 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 64064 bytes
+2025-08-23 01:15:34,559 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:15:34,560 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:15:34,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 64238 bytes
+2025-08-23 01:15:34,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 64174 bytes
+2025-08-23 01:15:34,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:15:34,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:15:34,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 64064 bytes
+2025-08-23 01:15:34,562 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:15:34,562 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 64064 bytes, offset: 0
+2025-08-23 01:15:34,567 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:34,567 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:15:34,576 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:15:34,576 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:15:34,577 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-08-23 01:15:34,580 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-08-23 01:15:34,585 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-08-23 01:15:34,585 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:15:34,589 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:15:34,589 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:15:34,589 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:15:34,589 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:15:34,590 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:15:34,594 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:34,603 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 64064 bytes
+2025-08-23 01:15:34,611 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-08-23 01:15:34,611 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:15:34,612 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 64238 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 64174 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 64064 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:15:34,613 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 64064 bytes, offset: 0
+2025-08-23 01:15:34,617 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:34,618 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:15:34,627 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:15:34,627 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:15:34,627 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-08-23 01:15:34,631 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-08-23 01:15:34,634 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-08-23 01:15:34,638 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-08-23 01:15:34,644 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-08-23 01:15:34,644 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:15:34,647 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:15:34,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:15:34,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:15:34,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:15:34,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:15:34,654 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:34,663 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 64064 bytes
+2025-08-23 01:15:35,256 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:15:35,271 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:15:35,272 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:15:35,273 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-08-23 01:15:35,273 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-08-23 01:15:35,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 64238 bytes
+2025-08-23 01:15:35,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 64174 bytes
+2025-08-23 01:15:35,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:15:35,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:15:35,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 64064 bytes
+2025-08-23 01:15:35,554 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:15:35,554 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 64064 bytes, offset: 0
+2025-08-23 01:15:35,559 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:15:35,559 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:15:35,569 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:15:35,569 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:15:35,570 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-08-23 01:15:35,588 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:15:35,593 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-08-23 01:16:09,659 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-08-23 01:16:09,660 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-08-23 01:16:09,660 - root - DEBUG - [BENCHMARK] Test data checksum: b8eb0ac1fd62438a2bb148586308d1f8...704f4407d3492f25478e12c5c09e9c90
+2025-08-23 01:16:09,660 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:16:09,717 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:09,717 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:09,718 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:09,718 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:09,718 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:09,724 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:09,734 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:09,742 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:16:09,743 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:09,744 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:09,749 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:09,749 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:16:09,759 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:16:09,759 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:16:09,760 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-08-23 01:16:09,763 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-08-23 01:16:09,768 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-08-23 01:16:09,769 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:16:09,773 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:09,773 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:09,774 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:09,774 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:09,774 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:09,778 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:09,788 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:09,795 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-08-23 01:16:09,795 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:16:09,796 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:09,796 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:09,796 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:09,796 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:09,797 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:09,798 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:09,798 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:09,804 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:09,805 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:16:09,813 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:16:09,813 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:16:09,813 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-08-23 01:16:09,818 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-08-23 01:16:09,822 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-08-23 01:16:09,825 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-08-23 01:16:09,829 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-08-23 01:16:09,829 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:16:09,832 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:09,833 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:09,833 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:09,833 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:09,833 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:09,838 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:09,848 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:10,426 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:16:10,442 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:16:10,442 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:16:10,442 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-08-23 01:16:10,442 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-08-23 01:16:10,730 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:10,731 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:10,731 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:10,731 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:10,732 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:10,732 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:10,732 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:10,739 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:10,740 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 64064 bytes
+2025-08-23 01:16:10,754 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 64064 bytes
+2025-08-23 01:16:10,755 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 64064/65536 bytes
+2025-08-23 01:16:10,755 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-08-23 01:16:10,771 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:16:10,776 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-08-23 01:16:35,160 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-08-23 01:16:35,161 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-08-23 01:16:35,161 - root - DEBUG - [BENCHMARK] Test data checksum: 1c5dee13ab05de3f00f89e2ceb47eb9a...fc1e751d80ba5a7c230840a252b4fffe
+2025-08-23 01:16:35,161 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:16:35,220 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:35,220 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:35,221 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:35,221 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:35,221 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:35,226 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:35,237 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:35,242 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:16:35,243 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:16:35,244 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:35,244 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:35,244 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:35,244 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:35,244 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:35,245 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:35,245 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:35,251 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:35,252 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:16:35,261 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:16:35,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:16:35,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:16:35,268 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:16:35,268 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-08-23 01:16:35,273 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-08-23 01:16:35,277 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-08-23 01:16:35,277 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:16:35,281 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:35,281 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:35,281 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:35,281 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:35,281 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:35,287 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:35,302 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:35,308 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-08-23 01:16:35,308 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:16:35,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:35,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:35,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:35,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:35,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:35,311 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:35,311 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:35,317 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:35,317 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:16:35,334 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:16:35,335 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:16:35,336 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:16:35,342 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:16:35,343 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-08-23 01:16:35,347 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-08-23 01:16:35,351 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-08-23 01:16:35,354 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-08-23 01:16:35,358 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-08-23 01:16:35,358 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:16:35,361 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:16:35,362 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:16:35,362 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:16:35,362 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:16:35,362 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:16:35,366 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:35,375 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:16:35,953 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:16:35,970 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:16:35,970 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:16:35,971 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-08-23 01:16:35,972 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-08-23 01:16:36,265 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:16:36,266 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:16:36,266 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:16:36,266 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:16:36,267 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:16:36,268 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:16:36,268 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:16:36,272 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:16:36,272 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:16:36,283 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:16:36,283 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:16:36,283 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:16:36,300 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:16:36,301 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-08-23 01:16:36,307 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:16:36,311 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-08-23 01:17:09,444 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-08-23 01:17:09,444 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-08-23 01:17:09,444 - root - DEBUG - [BENCHMARK] Test data checksum: 0fd776fbcf0cd6cf2342e8a4c84c1f63...51dd056b3758b271fae43f24f18f9828
+2025-08-23 01:17:09,445 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:17:09,472 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:17:09,473 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:17:09,473 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:17:09,473 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:17:09,473 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:17:09,475 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:09,482 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:17:09,496 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:17:09,496 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-08-23 01:17:09,497 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:17:09,497 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:17:09,497 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:17:09,497 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:17:09,497 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:17:09,498 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:17:09,498 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:17:09,500 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:09,501 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:17:09,507 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:17:09,507 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:17:09,507 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:17:09,512 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:17:09,512 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-08-23 01:17:09,516 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-08-23 01:17:09,521 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-08-23 01:17:09,521 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:17:09,524 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:17:09,524 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:17:09,524 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:17:09,524 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:17:09,524 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:17:09,527 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:09,534 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:17:09,541 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-08-23 01:17:09,541 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-08-23 01:17:09,542 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:17:09,542 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:17:09,542 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:17:09,542 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:17:09,543 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:17:09,543 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:17:09,543 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:17:09,546 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:09,546 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:17:09,556 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:17:09,556 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:17:09,556 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:17:09,560 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:17:09,560 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-08-23 01:17:09,565 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-08-23 01:17:09,568 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-08-23 01:17:09,572 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-08-23 01:17:09,576 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-08-23 01:17:09,576 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:17:09,579 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-08-23 01:17:09,579 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-08-23 01:17:09,580 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-08-23 01:17:09,580 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-08-23 01:17:09,580 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-08-23 01:17:09,584 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:09,596 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-08-23 01:17:09,985 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:17:09,998 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-08-23 01:17:09,998 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-08-23 01:17:09,999 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-08-23 01:17:09,999 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-08-23 01:17:10,203 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-08-23 01:17:10,203 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-08-23 01:17:10,203 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-08-23 01:17:10,204 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-08-23 01:17:10,204 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-08-23 01:17:10,204 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-08-23 01:17:10,204 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-08-23 01:17:10,207 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-08-23 01:17:10,207 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-08-23 01:17:10,218 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-08-23 01:17:10,218 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-08-23 01:17:10,218 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-08-23 01:17:10,233 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-08-23 01:17:10,233 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-08-23 01:17:10,238 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-08-23 01:17:10,244 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-08-23 01:17:12,970 - custom_cipher - INFO - Custom 512-bit Cipher 'Quantum Fortress' initialized
+2025-08-23 01:17:13,022 - custom_cipher - DEBUG - Created custom cipher context with dynamic S-boxes
+2025-10-19 18:37:18,940 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 18:37:18,941 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 18:37:18,941 - root - DEBUG - [BENCHMARK] Test data checksum: 02f272dd6416b71f8a0c83ce7a3fd5cd...55ceb8c3cfbdae1dd304e5e6c8d13b93
+2025-10-19 18:37:18,941 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 18:37:18,945 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:37:18,945 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:37:18,946 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:37:18,946 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:37:18,946 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:37:18,948 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:18,954 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:37:18,959 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 18:37:18,959 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 18:37:18,961 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:37:18,961 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:37:18,962 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:37:18,962 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:37:18,962 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:37:18,963 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:37:18,963 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:37:18,965 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:18,966 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:37:18,973 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:37:18,973 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:37:18,973 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:37:18,977 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:37:18,977 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 18:37:18,981 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 18:37:18,987 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 18:37:18,987 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 18:37:18,989 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:37:18,990 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:37:18,990 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:37:18,990 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:37:18,990 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:37:18,994 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:19,006 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:37:19,012 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 18:37:19,013 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:37:19,014 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:37:19,018 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:19,018 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:37:19,025 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:37:19,025 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:37:19,025 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:37:19,031 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:37:19,031 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 18:37:19,034 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 18:37:19,037 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 18:37:19,039 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 18:37:19,043 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 18:37:19,044 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 18:37:19,047 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:37:19,047 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:37:19,047 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:37:19,047 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:37:19,047 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:37:19,051 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:19,058 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:37:19,434 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 18:37:19,437 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 18:37:19,438 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 18:37:19,438 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 18:37:19,438 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:37:19,625 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:37:19,628 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:37:19,628 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:37:19,637 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:37:19,637 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:37:19,638 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:37:19,651 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:37:19,652 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 18:37:19,660 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 18:37:19,664 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 18:37:36,482 - otp_layer - DEBUG - Generated 262144 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 18:37:57,140 - otp_layer - DEBUG - Generated 262144 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 18:49:12,979 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 18:49:12,979 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 18:49:12,979 - root - DEBUG - [BENCHMARK] Test data checksum: e69c860b4571fd0151d3e6c2cd8455f9...2a88dc5171d339ece88c5e1a43a4ac5d
+2025-10-19 18:49:12,979 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 18:49:12,982 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:49:12,982 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:49:12,982 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:49:12,982 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:49:12,982 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:49:12,985 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:12,990 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:49:13,006 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 18:49:13,006 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 18:49:13,006 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:49:13,006 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:49:13,006 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:49:13,007 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:49:13,007 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:49:13,007 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:49:13,007 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:49:13,009 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:13,010 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:49:13,016 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:49:13,017 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:49:13,017 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:49:13,021 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:49:13,022 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 18:49:13,026 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 18:49:13,032 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 18:49:13,032 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 18:49:13,034 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:49:13,034 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:49:13,034 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:49:13,035 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:49:13,035 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:49:13,037 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:13,043 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:49:13,048 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 18:49:13,049 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 18:49:13,050 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:49:13,050 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:49:13,050 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:49:13,050 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:49:13,050 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:49:13,051 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:49:13,051 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:49:13,053 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:13,053 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:49:13,059 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:49:13,059 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:49:13,059 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:49:13,063 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:49:13,064 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 18:49:13,069 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 18:49:13,071 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 18:49:13,073 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 18:49:13,077 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 18:49:13,078 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 18:49:13,081 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 18:49:13,082 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 18:49:13,082 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 18:49:13,082 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 18:49:13,082 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 18:49:13,086 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:13,093 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 18:49:13,428 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 18:49:13,444 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 18:49:13,444 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 18:49:13,445 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 18:49:13,445 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 18:49:13,620 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 18:49:13,620 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 18:49:13,620 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 18:49:13,621 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 18:49:13,621 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 18:49:13,621 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 18:49:13,622 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 18:49:13,624 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 18:49:13,624 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 18:49:13,630 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 18:49:13,630 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 18:49:13,630 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 18:49:13,646 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 18:49:13,646 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 18:49:13,650 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 18:49:13,655 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 18:49:32,465 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 18:50:13,230 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 19:21:07,291 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 19:21:07,291 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 19:21:07,292 - root - DEBUG - [BENCHMARK] Test data checksum: 36c8d4c64cd11db2d400302e4407e3eb...0c697e603a067d5a60ee959bb7f57670
+2025-10-19 19:21:07,292 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 19:21:07,294 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:21:07,294 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:21:07,294 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:21:07,294 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:21:07,294 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,296 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,301 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:21:07,307 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 19:21:07,307 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 19:21:07,308 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:21:07,309 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:21:07,312 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,312 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:21:07,318 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,318 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:21:07,318 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:21:07,324 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:21:07,324 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 19:21:07,328 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 19:21:07,331 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 19:21:07,332 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 19:21:07,335 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:21:07,335 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:21:07,335 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:21:07,336 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:21:07,336 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,340 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,347 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:21:07,352 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 19:21:07,353 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 19:21:07,354 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:21:07,354 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:21:07,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:21:07,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:21:07,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:21:07,356 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:21:07,356 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:21:07,358 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,358 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:21:07,365 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,365 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:21:07,365 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:21:07,369 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:21:07,370 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 19:21:07,374 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 19:21:07,377 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 19:21:07,381 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 19:21:07,385 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 19:21:07,386 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 19:21:07,390 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:21:07,390 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:21:07,390 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:21:07,390 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:21:07,390 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,394 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,401 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:21:07,735 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 19:21:07,749 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 19:21:07,749 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 19:21:07,751 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 19:21:07,751 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:21:07,927 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:21:07,930 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:21:07,930 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:21:07,936 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:21:07,936 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:21:07,937 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:21:07,951 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:21:07,951 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 19:21:07,955 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 19:21:07,963 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 19:21:28,078 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 19:22:08,686 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 19:30:12,507 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 19:30:12,508 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 19:30:12,508 - root - DEBUG - [BENCHMARK] Test data checksum: 05ea955a333c7a558df76c0e876d879d...951aa6db9176d8425288a9cd86ccd0af
+2025-10-19 19:30:12,508 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 19:30:12,512 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:30:12,512 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:30:12,512 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:30:12,512 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:30:12,513 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:30:12,519 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:12,528 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:30:12,545 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 19:30:12,545 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 19:30:12,546 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:30:12,546 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:30:12,546 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:30:12,546 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:30:12,547 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:30:12,548 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:30:12,548 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:30:12,553 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:12,553 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:30:12,560 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:30:12,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:30:12,561 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:30:12,567 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:30:12,568 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 19:30:12,571 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 19:30:12,574 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 19:30:12,574 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 19:30:12,576 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:30:12,577 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:30:12,577 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:30:12,577 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:30:12,577 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:30:12,584 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:12,595 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:30:12,604 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 19:30:12,604 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 19:30:12,605 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:30:12,606 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:30:12,612 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:12,612 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:30:12,623 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:30:12,623 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:30:12,623 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:30:12,628 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:30:12,628 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 19:30:12,633 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 19:30:12,638 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 19:30:12,640 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 19:30:12,644 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 19:30:12,644 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 19:30:12,648 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 19:30:12,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 19:30:12,648 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 19:30:12,649 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 19:30:12,649 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 19:30:12,654 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:12,662 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 19:30:13,049 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 19:30:13,065 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 19:30:13,065 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 19:30:13,066 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 19:30:13,066 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 19:30:13,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 19:30:13,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 19:30:13,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 19:30:13,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 19:30:13,262 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 19:30:13,263 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 19:30:13,263 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 19:30:13,265 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 19:30:13,265 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 19:30:13,272 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 19:30:13,272 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 19:30:13,272 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 19:30:13,286 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 19:30:13,287 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 19:30:13,291 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 19:30:13,296 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 19:30:32,215 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 19:31:13,321 - otp_layer - DEBUG - Generated 524288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 20:00:56,246 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 20:00:56,247 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 20:00:56,247 - root - DEBUG - [BENCHMARK] Test data checksum: 3f9e4ff6f0888b9e20a75f6dbedd551e...5fc2dc7e7c73a5be1d1667dfaa518101
+2025-10-19 20:00:56,247 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:00:56,255 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:00:56,255 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:00:56,255 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:00:56,255 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:00:56,256 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:00:56,261 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:56,272 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:00:56,352 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:00:56,353 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:00:56,354 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:00:56,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:00:56,361 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:56,361 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:00:56,371 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:00:56,372 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:00:56,372 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:00:56,387 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:00:56,388 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 20:00:56,392 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 20:00:56,401 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 20:00:56,402 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:00:56,407 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:00:56,407 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:00:56,407 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:00:56,407 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:00:56,407 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:00:56,414 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:56,432 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:00:56,445 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 20:00:56,445 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:00:56,447 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:00:56,447 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:00:56,447 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:00:56,448 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:00:56,448 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:00:56,449 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:00:56,450 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:00:56,457 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:56,457 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:00:56,474 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:00:56,474 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:00:56,474 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:00:56,483 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:00:56,484 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 20:00:56,490 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 20:00:56,495 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 20:00:56,500 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 20:00:56,507 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 20:00:56,508 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:00:56,513 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:00:56,514 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:00:56,514 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:00:56,514 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:00:56,514 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:00:56,521 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:56,535 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:00:57,147 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:00:57,172 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:00:57,173 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:00:57,175 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 20:00:57,175 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 20:00:57,468 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:00:57,469 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:00:57,469 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:00:57,469 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:00:57,469 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:00:57,470 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:00:57,470 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:00:57,474 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:00:57,474 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:00:57,487 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:00:57,488 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:00:57,489 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:00:57,502 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:00:57,503 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 20:00:57,512 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:00:57,530 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 20:00:58,402 - otp_layer - DEBUG - Generated 524,288 bytes of OTP key material (entropy: 8.00 bits/byte)
+2025-10-19 20:20:43,447 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 20:20:43,448 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 20:20:43,448 - root - DEBUG - [BENCHMARK] Test data checksum: 9e323645a0b9281a04c85a9b72541861...bbba1084c687867e7ab895fe961d0c54
+2025-10-19 20:20:43,448 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:20:43,450 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:20:43,451 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:20:43,451 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:20:43,451 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:20:43,451 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:20:43,454 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:43,460 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:20:43,476 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:20:43,476 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:20:43,477 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:20:43,480 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:43,480 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:20:43,487 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:20:43,487 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:20:43,487 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:20:43,492 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:20:43,492 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 20:20:43,496 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 20:20:43,502 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 20:20:43,502 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:20:43,505 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:20:43,505 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:20:43,505 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:20:43,505 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:20:43,505 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:20:43,508 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:43,516 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:20:43,521 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 20:20:43,521 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:20:43,522 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:20:43,523 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:20:43,523 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:20:43,523 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:20:43,523 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:20:43,524 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:20:43,524 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:20:43,529 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:43,529 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:20:43,537 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:20:43,538 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:20:43,538 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:20:43,543 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:20:43,543 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 20:20:43,549 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 20:20:43,552 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 20:20:43,556 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 20:20:43,562 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 20:20:43,562 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:20:43,565 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:20:43,565 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:20:43,565 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:20:43,566 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:20:43,566 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:20:43,569 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:43,576 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:20:43,931 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:20:43,945 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:20:43,945 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:20:43,945 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 20:20:43,945 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 20:20:44,118 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:20:44,118 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:20:44,118 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:20:44,118 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:20:44,118 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:20:44,119 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:20:44,119 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:20:44,121 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:20:44,121 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:20:44,128 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:20:44,128 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:20:44,128 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:20:44,143 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:20:44,144 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 20:20:44,150 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:20:44,154 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 20:23:45,248 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 20:23:45,248 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 20:23:45,248 - root - DEBUG - [BENCHMARK] Test data checksum: d05c3b38e342404ebb1ec2aa16f1e82f...1350015bbfcd6900880aae2f1a1423af
+2025-10-19 20:23:45,248 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:23:45,251 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:23:45,251 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:23:45,251 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:23:45,251 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:23:45,251 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,253 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,258 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:23:45,300 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:23:45,300 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 20:23:45,301 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:23:45,301 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:23:45,301 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:23:45,301 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:23:45,301 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:23:45,302 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:23:45,302 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:23:45,304 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,305 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:23:45,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:23:45,310 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:23:45,313 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:23:45,313 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 20:23:45,316 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 20:23:45,323 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 20:23:45,323 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:23:45,326 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:23:45,327 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:23:45,327 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:23:45,327 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:23:45,327 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,329 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,336 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:23:45,343 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 20:23:45,343 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:23:45,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:23:45,345 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:23:45,348 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,348 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:23:45,354 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:23:45,355 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:23:45,361 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:23:45,361 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 20:23:45,367 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 20:23:45,372 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 20:23:45,376 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 20:23:45,382 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 20:23:45,382 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:23:45,385 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 20:23:45,385 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 20:23:45,385 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 20:23:45,385 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 20:23:45,385 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,391 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,399 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 20:23:45,721 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:23:45,735 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 20:23:45,736 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 20:23:45,737 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 20:23:45,737 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 20:23:45,909 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 20:23:45,909 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 20:23:45,909 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 20:23:45,909 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 20:23:45,909 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 20:23:45,910 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 20:23:45,910 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 20:23:45,912 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 20:23:45,912 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 20:23:45,918 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 20:23:45,918 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 20:23:45,918 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 20:23:45,933 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 20:23:45,933 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 20:23:45,937 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 20:23:45,941 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 21:30:11,553 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 21:30:11,553 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 21:30:11,553 - root - DEBUG - [BENCHMARK] Test data checksum: de4967264209248f9c334e8ba6c54900...8fc490f14d14c1a79c18cd9656840d43
+2025-10-19 21:30:11,553 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:30:11,562 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:30:11,562 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:30:11,562 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:30:11,563 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:30:11,563 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:30:11,567 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:11,579 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:30:11,591 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:30:11,592 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:30:11,594 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:30:11,594 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:30:11,594 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:30:11,594 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:30:11,595 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:30:11,595 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:30:11,595 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:30:11,598 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:11,598 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:30:11,609 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:30:11,610 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:30:11,610 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:30:11,618 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:30:11,618 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 21:30:11,625 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 21:30:11,631 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 21:30:11,631 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:30:11,634 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:30:11,634 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:30:11,635 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:30:11,635 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:30:11,635 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:30:11,639 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:11,647 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:30:11,655 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 21:30:11,656 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:30:11,658 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:30:11,659 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:30:11,662 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:11,662 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:30:11,669 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:30:11,670 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:30:11,670 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:30:11,679 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:30:11,679 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 21:30:11,685 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 21:30:11,690 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 21:30:11,694 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 21:30:11,701 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 21:30:11,701 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:30:11,705 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:30:11,705 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:30:11,705 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:30:11,706 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:30:11,706 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:30:11,711 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:11,719 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:30:12,173 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:30:12,179 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:30:12,179 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:30:12,180 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 21:30:12,180 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 21:30:12,383 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:30:12,383 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:30:12,383 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:30:12,383 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:30:12,384 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:30:12,384 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:30:12,384 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:30:12,387 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:30:12,387 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:30:12,394 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:30:12,394 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:30:12,394 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:30:12,412 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:30:12,413 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 21:30:12,420 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:30:12,429 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 21:34:54,069 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 21:34:54,069 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 21:34:54,069 - root - DEBUG - [BENCHMARK] Test data checksum: 3959b04ddade21fd834df2902b74206e...02560251194ebfc10c95cc250eaff592
+2025-10-19 21:34:54,069 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:34:54,072 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:34:54,072 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:34:54,072 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:34:54,072 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:34:54,072 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,074 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,079 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:34:54,095 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:34:54,095 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:34:54,096 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:34:54,096 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:34:54,096 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:34:54,096 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:34:54,096 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:34:54,097 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:34:54,097 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:34:54,099 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,099 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:34:54,105 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,106 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:34:54,106 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:34:54,111 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:34:54,111 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 21:34:54,113 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 21:34:54,116 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 21:34:54,116 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:34:54,119 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:34:54,120 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:34:54,120 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:34:54,120 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:34:54,120 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,122 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,129 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:34:54,134 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 21:34:54,134 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:34:54,136 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:34:54,136 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:34:54,137 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:34:54,137 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:34:54,137 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:34:54,137 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:34:54,137 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:34:54,141 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,141 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:34:54,148 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,148 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:34:54,149 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:34:54,154 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:34:54,154 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 21:34:54,158 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 21:34:54,162 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 21:34:54,165 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 21:34:54,169 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 21:34:54,170 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:34:54,172 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:34:54,172 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:34:54,172 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:34:54,173 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:34:54,173 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,177 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,184 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:34:54,527 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:34:54,541 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:34:54,541 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:34:54,542 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 21:34:54,542 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 21:34:54,725 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:34:54,726 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:34:54,729 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:34:54,729 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:34:54,735 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:34:54,735 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:34:54,735 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:34:54,749 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:34:54,750 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 21:34:54,755 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:34:54,759 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 21:55:56,300 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 21:55:56,300 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 21:55:56,300 - root - DEBUG - [BENCHMARK] Test data checksum: 946f00663955e9fae3705135c4bf30b5...0aeb501cecbe20a996860ba8185a721b
+2025-10-19 21:55:56,300 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:55:56,305 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:55:56,305 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:55:56,305 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:55:56,305 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:55:56,305 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:55:56,308 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,317 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:55:56,335 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:55:56,335 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 21:55:56,338 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:55:56,338 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:55:56,338 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:55:56,338 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:55:56,339 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:55:56,339 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:55:56,339 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:55:56,343 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,344 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:55:56,352 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:55:56,353 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:55:56,353 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:55:56,359 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:55:56,359 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 21:55:56,364 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 21:55:56,370 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 21:55:56,371 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:55:56,376 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:55:56,376 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:55:56,376 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:55:56,376 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:55:56,376 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:55:56,382 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,394 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:55:56,403 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 21:55:56,404 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 21:55:56,406 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:55:56,406 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:55:56,407 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:55:56,407 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:55:56,407 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:55:56,408 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:55:56,408 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:55:56,413 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,414 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:55:56,423 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:55:56,424 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:55:56,424 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:55:56,429 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:55:56,429 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 21:55:56,435 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 21:55:56,439 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 21:55:56,442 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 21:55:56,449 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 21:55:56,449 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:55:56,453 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 21:55:56,454 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 21:55:56,454 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 21:55:56,455 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 21:55:56,455 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 21:55:56,459 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,468 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 21:55:56,801 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:55:56,815 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 21:55:56,815 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 21:55:56,816 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 21:55:56,817 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 21:55:56,995 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 21:55:56,995 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 21:55:56,995 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 21:55:56,995 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 21:55:56,995 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 21:55:56,996 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 21:55:56,996 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 21:55:56,998 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 21:55:56,998 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 21:55:57,005 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 21:55:57,005 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 21:55:57,006 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 21:55:57,020 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 21:55:57,020 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 21:55:57,024 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 21:55:57,029 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
+2025-10-19 22:13:33,625 - storage_layer - INFO - Secure Storage Engine initialized: /tmp/benchmark_storage
+2025-10-19 22:13:33,626 - root - DEBUG - [BENCHMARK] Test data generated: 65536 bytes
+2025-10-19 22:13:33,626 - root - DEBUG - [BENCHMARK] Test data checksum: 8d7e815dd7fd36ce4ebe3d73bd6fcaab...520310e411a85f4c757c4c70d982e2f9
+2025-10-19 22:13:33,626 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_0
+2025-10-19 22:13:33,643 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 22:13:33,643 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 22:13:33,643 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 22:13:33,643 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 22:13:33,643 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 22:13:33,647 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:33,654 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 22:13:33,660 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 22:13:33,660 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_0
+2025-10-19 22:13:33,661 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 22:13:33,661 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 22:13:33,661 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 22:13:33,661 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 22:13:33,661 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 22:13:33,662 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 22:13:33,662 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 22:13:33,664 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:33,665 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 22:13:33,672 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 22:13:33,672 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 22:13:33,672 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 22:13:33,678 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 22:13:33,679 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_0
+2025-10-19 22:13:33,686 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/containers/BENCHMARK_TEST_0.sec512
+2025-10-19 22:13:33,693 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_0
+2025-10-19 22:13:33,693 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_1
+2025-10-19 22:13:33,696 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 22:13:33,697 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 22:13:33,697 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 22:13:33,698 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 22:13:33,698 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 22:13:33,702 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:33,711 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 22:13:33,720 - storage_layer - INFO - Data stored successfully: 3 locations
+2025-10-19 22:13:33,720 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_1
+2025-10-19 22:13:33,721 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 22:13:33,722 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 22:13:33,729 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:33,729 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 22:13:33,741 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 22:13:33,741 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 22:13:33,741 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 22:13:33,751 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 22:13:33,752 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_1
+2025-10-19 22:13:33,758 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_00.sec512
+2025-10-19 22:13:33,768 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_01.sec512
+2025-10-19 22:13:33,773 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/fragments/BENCHMARK_TEST_1_frag_02.sec512
+2025-10-19 22:13:33,781 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_1
+2025-10-19 22:13:33,782 - storage_layer - INFO - Storing encrypted data: BENCHMARK_TEST_2
+2025-10-19 22:13:33,788 - storage_layer - DEBUG - Compression: none, ratio: 1.00
+2025-10-19 22:13:33,788 - storage_layer - DEBUG - [CREATE_CONTAINER] Input data length: 65536 bytes
+2025-10-19 22:13:33,788 - storage_layer - DEBUG - [CREATE_CONTAINER] Header size: 28 bytes
+2025-10-19 22:13:33,788 - storage_layer - DEBUG - [CREATE_CONTAINER] Encrypting 65536 bytes in chunks of 65536
+2025-10-19 22:13:33,788 - storage_layer - DEBUG - [CREATE_CONTAINER] Processing chunk 1, size: 65536 bytes
+2025-10-19 22:13:33,794 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:33,806 - storage_layer - DEBUG - [CREATE_CONTAINER] Chunk 1 encrypted: 65536 bytes
+2025-10-19 22:13:34,156 - storage_layer - INFO - Steganographic container created: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 22:13:34,172 - storage_layer - INFO - Data stored successfully: 1 locations
+2025-10-19 22:13:34,172 - storage_layer - INFO - Retrieving encrypted data: BENCHMARK_TEST_2
+2025-10-19 22:13:34,173 - PIL.PngImagePlugin - DEBUG - STREAM b'IHDR' 16 13
+2025-10-19 22:13:34,173 - PIL.PngImagePlugin - DEBUG - STREAM b'IDAT' 41 65536
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Input container size: 65710 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] After removing checksum: 65646 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Original length from header: 65536 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Header size: 110 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Encrypted data size: 65536 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypting in chunks of 65536 bytes
+2025-10-19 22:13:34,342 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Processing chunk 1, size: 65536 bytes, offset: 0
+2025-10-19 22:13:34,345 - crypto_utils - WARNING - HKDF expansion stopped at counter 1001
+2025-10-19 22:13:34,345 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Derived key for chunk 1, length: 65536 bytes
+2025-10-19 22:13:34,351 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Decrypted chunk 1, size: 65536 bytes
+2025-10-19 22:13:34,351 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Total decrypted so far: 65536/65536 bytes
+2025-10-19 22:13:34,351 - storage_layer - DEBUG - [DECRYPT_CONTAINER] Reached original data length, stopping decryption
+2025-10-19 22:13:34,368 - storage_layer - INFO - Data retrieved successfully: 65536 bytes
+2025-10-19 22:13:34,368 - storage_layer - INFO - Securely deleting file: BENCHMARK_TEST_2
+2025-10-19 22:13:34,376 - storage_layer - DEBUG - Securely deleted: /tmp/benchmark_storage/steganography/BENCHMARK_TEST_2_hidden.png
+2025-10-19 22:13:34,383 - storage_layer - INFO - File securely deleted: BENCHMARK_TEST_2
