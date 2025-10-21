@@ -2,6 +2,255 @@
 
 This document outlines the remaining development roadmap for the Secure Vault project, focusing on upcoming features and enhancements for our 512-bit Multi-Layer Encryption System.
 
+## 🔴 CRITICAL PRIORITY: Phase 0 - User Authentication & First-Start Protocol (0% Complete)
+
+**STATUS**: Not Started - This is the next critical feature to implement before any other development.
+
+**OBJECTIVE**: Implement a secure authentication system with first-start account creation and PIN-based login to protect vault access.
+
+### Security Requirements
+
+The authentication system must meet the following security requirements:
+- ✅ PIN must **never** be stored (neither locally nor online)
+- ✅ PIN verification through cryptographic derivation and decryption
+- ✅ Protection against brute force attacks
+- ✅ Secure handling of credentials in memory
+- ✅ Audit logging of all authentication attempts
+
+### 0.1 Technical Architecture
+
+#### PIN Authentication Design (No Storage)
+
+**Core Concept**: The PIN is used to derive an encryption key that protects the master vault key. Verification happens by attempting to decrypt the master key - if decryption succeeds, the PIN is correct.
+
+**First-Start Flow:**
+1. User creates account with email + password
+2. User sets 6-8 digit PIN
+3. System generates random master vault encryption key (256-bit)
+4. PIN + random salt → Argon2id → PIN-derived key (KDF)
+5. Master vault key encrypted with PIN-derived key → encrypted master key
+6. Verification marker (known string) encrypted with master vault key
+7. **Store**: email hash, password hash (Argon2id), encrypted master key, PIN salt, encrypted verification marker
+8. **Never Store**: PIN itself, master vault key in plaintext
+
+**Subsequent Login Flow:**
+1. User enters PIN
+2. System retrieves PIN salt from database
+3. PIN + salt → Argon2id → PIN-derived key
+4. Attempt to decrypt encrypted master key with PIN-derived key
+5. Decrypt verification marker with master key
+6. If verification marker is valid → authentication success
+7. If invalid → increment failure counter, rate limit
+
+**Security Properties:**
+- PIN is never stored (only salt is stored)
+- No separate PIN hash to attack (verification via decryption attempt)
+- Argon2id memory-hard KDF resistant to GPU/ASIC attacks
+- Rate limiting prevents brute force (exponential backoff + lockout)
+- Email+password recovery path if PIN is forgotten
+- All attempts logged for security audit
+
+#### Key Derivation Parameters (Argon2id)
+
+```
+Algorithm: Argon2id (hybrid mode - resistant to side-channel and GPU attacks)
+Time Cost: 3 iterations (minimum recommended)
+Memory Cost: 64 MB (65536 KB)
+Parallelism: 4 threads
+Salt: 16 bytes (cryptographically random per user)
+Output: 32 bytes (256-bit key)
+```
+
+### 0.2 Implementation Tasks
+
+#### Database Schema (users.db)
+- [ ] Create user management database schema
+  - [ ] `users` table: user_id, email_hash, password_hash, created_at, last_login
+  - [ ] `auth_credentials` table: user_id, pin_salt, encrypted_master_key, verification_marker
+  - [ ] `auth_attempts` table: user_id, timestamp, success, ip_address, failure_count
+  - [ ] `sessions` table: session_id, user_id, created_at, expires_at, last_activity
+  - [ ] Indexes for performance (user_id, email_hash, session_id)
+  - [ ] Foreign key constraints and cascading deletes
+
+#### Core Authentication Modules
+- [ ] `user_manager.py` - User account management
+  - [ ] User creation with email validation
+  - [ ] Password policy enforcement (min length, complexity)
+  - [ ] PIN policy enforcement (6-8 digits, no repeating/sequential)
+  - [ ] Account recovery workflows
+  - [ ] User data encryption at rest
+
+- [ ] `auth_manager.py` - Authentication logic
+  - [ ] PIN-based login with Argon2id derivation
+  - [ ] Master key decryption and verification
+  - [ ] Session token generation (secure random)
+  - [ ] Session validation and expiration
+  - [ ] Logout and session cleanup
+
+- [ ] `pin_manager.py` - PIN handling
+  - [ ] Argon2id key derivation function wrapper
+  - [ ] PIN validation (format, strength)
+  - [ ] Master key encryption/decryption
+  - [ ] Verification marker handling
+  - [ ] Secure memory wiping for PIN data
+
+- [ ] `rate_limiter.py` - Brute force protection
+  - [ ] Failed attempt tracking per user
+  - [ ] Exponential backoff (1s, 2s, 4s, 8s, ...)
+  - [ ] Account lockout after N failures (default: 5)
+  - [ ] Time-based lockout release (default: 30 minutes)
+  - [ ] Admin override for lockout reset
+
+#### GUI Components (Linux GUI)
+- [ ] `first_start_wizard.py` - Onboarding wizard
+  - [ ] Welcome screen with security information
+  - [ ] Email input with validation
+  - [ ] Password creation with strength meter
+  - [ ] PIN setup with confirmation
+  - [ ] Account creation summary
+  - [ ] Progress indicator (steps 1-4)
+
+- [ ] `login_dialog.py` - PIN login screen
+  - [ ] Numeric PIN pad (optional, accessibility)
+  - [ ] PIN input field (masked)
+  - [ ] "Forgot PIN?" recovery option
+  - [ ] Error messages for invalid attempts
+  - [ ] Lockout notification
+
+- [ ] `account_recovery_dialog.py` - Recovery flow
+  - [ ] Email + password verification
+  - [ ] PIN reset functionality
+  - [ ] Security question option (future)
+  - [ ] Recovery confirmation email (future)
+
+#### CLI Components
+- [ ] `cli_auth.py` - CLI authentication wrapper
+  - [ ] First-start account creation flow
+  - [ ] PIN prompt on startup
+  - [ ] Session management for CLI operations
+  - [ ] Auth token storage (secure, temporary)
+  - [ ] Logout command
+
+#### Integration Points
+- [ ] Modify `LINUX_GUI/main.py`
+  - [ ] Check if users.db exists on startup
+  - [ ] If not exists → show FirstStartWizard
+  - [ ] If exists → show LoginDialog
+  - [ ] Only show MainWindow after successful authentication
+  - [ ] Handle session expiration (auto-lock)
+
+- [ ] Modify `main.py` (CLI)
+  - [ ] Wrap all commands with authentication check
+  - [ ] Prompt for PIN before any operation
+  - [ ] Session timeout for CLI (configurable)
+  - [ ] Store session token in secure temporary file
+
+- [ ] Update `Header` widget in GUI
+  - [ ] Display actual user email/username
+  - [ ] Implement functional sign_out() method
+  - [ ] Add "Lock" option (lock without logout)
+  - [ ] Session timeout indicator
+
+#### Security Features
+- [ ] Audit logging integration
+  - [ ] Log all authentication attempts (success/failure)
+  - [ ] Log account creation events
+  - [ ] Log PIN changes and resets
+  - [ ] Log session creation/destruction
+  - [ ] Tamper-evident log chain (use existing audit_logger.py)
+
+- [ ] Secure memory handling
+  - [ ] Wipe PIN from memory after use (use existing secure_memory.py)
+  - [ ] Wipe master key from memory when session ends
+  - [ ] Wipe password from memory after hashing
+  - [ ] Clear clipboard after password/PIN copy
+
+- [ ] Additional protections
+  - [ ] Screen lock after inactivity (configurable timeout)
+  - [ ] Auto-logout after session timeout
+  - [ ] Secure deletion of session tokens on logout
+  - [ ] Optional 2FA/TOTP support (future enhancement)
+
+### 0.3 Testing Requirements
+
+- [ ] Unit tests for authentication modules
+  - [ ] User creation and validation
+  - [ ] PIN derivation and verification
+  - [ ] Rate limiting and lockout logic
+  - [ ] Session management
+
+- [ ] Integration tests
+  - [ ] End-to-end first-start flow
+  - [ ] Login/logout cycles
+  - [ ] Recovery workflows
+  - [ ] Lockout and unlock scenarios
+
+- [ ] Security tests
+  - [ ] Brute force attack simulation
+  - [ ] Timing attack resistance (constant-time comparisons)
+  - [ ] Memory leak detection for sensitive data
+  - [ ] Session hijacking prevention
+
+- [ ] UI/UX tests
+  - [ ] FirstStartWizard usability
+  - [ ] LoginDialog functionality
+  - [ ] Error message clarity
+  - [ ] Recovery flow usability
+
+### 0.4 Documentation
+
+- [ ] User documentation
+  - [ ] First-start guide with screenshots
+  - [ ] PIN best practices (avoid birthdays, simple patterns)
+  - [ ] Recovery procedures
+  - [ ] Security recommendations
+
+- [ ] Developer documentation
+  - [ ] Authentication architecture diagram
+  - [ ] API documentation for auth modules
+  - [ ] Database schema documentation
+  - [ ] Integration guide for new features
+
+- [ ] Security documentation
+  - [ ] Threat model for authentication system
+  - [ ] Cryptographic parameter justification
+  - [ ] Audit logging format specification
+  - [ ] Incident response procedures
+
+### 0.5 Future Enhancements (Post-Initial Implementation)
+
+- [ ] Multi-factor authentication (TOTP/hardware keys)
+- [ ] Biometric authentication (fingerprint, face recognition)
+- [ ] Passwordless authentication (WebAuthn/FIDO2)
+- [ ] Account sharing and delegation (family/team features)
+- [ ] Cloud backup of encrypted credentials (user-controlled)
+- [ ] Emergency access codes (printed/stored offline)
+
+### Timeline Estimate
+
+- **Week 1**: Database schema, core auth modules (user_manager, auth_manager, pin_manager)
+- **Week 2**: GUI components (FirstStartWizard, LoginDialog, recovery dialogs)
+- **Week 3**: CLI authentication, integration with existing entry points
+- **Week 4**: Security features (rate limiting, audit logging, secure memory)
+- **Week 5**: Testing (unit, integration, security tests)
+- **Week 6**: Documentation, code review, security audit
+
+**Total Estimated Time**: 6 weeks
+
+**Dependencies**: None (this is foundational - everything else can wait)
+
+**Success Criteria**:
+- [ ] First-start wizard successfully creates accounts
+- [ ] PIN login works on subsequent startups
+- [ ] PIN is provably not stored anywhere in the system
+- [ ] Rate limiting prevents brute force attacks
+- [ ] Recovery flow allows PIN reset with email+password
+- [ ] All authentication events are audit logged
+- [ ] No sensitive data remains in memory after operations
+- [ ] Both GUI and CLI fully protected by authentication
+
+---
+
 ## Phase 1: Security Hardening (100% Complete) ✅
 
 ### 1.1 Entropy System Enhancements
