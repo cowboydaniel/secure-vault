@@ -107,7 +107,7 @@ class EntropyAccumulator:
         
     def _create_pool(self) -> EntropyPool:
         """Create a new secure entropy pool"""
-        return EntropyPool(SecureBytes(0))
+        return EntropyPool(SecureBytes(b''))
     
     def add_entropy(self, data: bytes, source: int, estimated_bits: float) -> None:
         """

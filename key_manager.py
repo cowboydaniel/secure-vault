@@ -43,9 +43,78 @@ class KeyType(Enum):
     MASTER = "master"     # Master key for key derivation
     BACKUP = "backup"     # Backup/recovery keys
 
+class RotationPolicy:
+    """Defines when and how a key should be rotated"""
+    
+    def __init__(
+        self,
+        max_age_days: int = 90,
+        max_usage_count: Optional[int] = None,
+        auto_rotate: bool = False,
+        rotation_interval_days: int = 30,
+        next_rotation_time: Optional[float] = None
+    ):
+        """Initialize rotation policy
+        
+        Args:
+            max_age_days: Maximum age in days before rotation is required
+            max_usage_count: Maximum number of uses before rotation is required (None for no limit)
+            auto_rotate: Whether to automatically rotate the key when conditions are met
+            rotation_interval_days: How often to rotate the key (in days) if auto_rotate is True
+            next_rotation_time: Timestamp for next rotation (auto-calculated if None)
+        """
+        self.max_age_days = max_age_days
+        self.max_usage_count = max_usage_count
+        self.auto_rotate = auto_rotate
+        self.rotation_interval_days = rotation_interval_days
+        self.next_rotation_time = next_rotation_time or (time.time() + (rotation_interval_days * 86400))
+    
+    def needs_rotation(self, key_metadata: 'KeyMetadata') -> bool:
+        """Check if key needs rotation based on policy"""
+        now = time.time()
+        
+        # Check max age
+        if (now - key_metadata.created_at) > (self.max_age_days * 86400):
+            return True
+            
+        # Check usage count
+        if self.max_usage_count and key_metadata.usage_count >= self.max_usage_count:
+            return True
+            
+        # Check scheduled rotation
+        if self.auto_rotate and now >= self.next_rotation_time:
+            return True
+            
+        return False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert policy to dictionary"""
+        return {
+            'max_age_days': self.max_age_days,
+            'max_usage_count': self.max_usage_count,
+            'auto_rotate': self.auto_rotate,
+            'rotation_interval_days': self.rotation_interval_days,
+            'next_rotation_time': self.next_rotation_time
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RotationPolicy':
+        """Create policy from dictionary"""
+        return cls(
+            max_age_days=data.get('max_age_days', 90),
+            max_usage_count=data.get('max_usage_count'),
+            auto_rotate=data.get('auto_rotate', False),
+            rotation_interval_days=data.get('rotation_interval_days', 30),
+            next_rotation_time=data.get('next_rotation_time')
+        )
+
+from key_states import KeyLifecycle, KeyState, KeyVersion
+from datetime import datetime
+from typing import Optional, Dict, Any, List, Union
+
 @dataclass
 class KeyMetadata:
-    """Metadata for managed keys"""
+    """Metadata for managed keys with lifecycle management"""
     key_id: str
     key_type: KeyType
     description: str = ""
@@ -55,10 +124,77 @@ class KeyMetadata:
     enabled: bool = True
     tags: List[str] = None
     custom_metadata: Dict[str, Any] = None
+    rotation_policy: Optional[RotationPolicy] = None
+    rotated_from: Optional[str] = None
+    rotated_at: Optional[float] = None
+    rotated_to: Optional[str] = None
+    _lifecycle: Optional[KeyLifecycle] = None
+    
+    def __post_init__(self):
+        """Initialize key lifecycle if not provided"""
+        if self._lifecycle is None:
+            valid_from = datetime.fromtimestamp(self.created_at) if self.created_at else None
+            self._lifecycle = KeyLifecycle(
+                state=KeyState.ACTIVE if self.enabled else KeyState.SUSPENDED,
+                valid_from=valid_from
+            )
+    
+    @property
+    def lifecycle(self) -> KeyLifecycle:
+        """Get the key lifecycle manager"""
+        if self._lifecycle is None:
+            self.__post_init__()
+        return self._lifecycle
+    
+    @property
+    def state(self) -> KeyState:
+        """Get current key state"""
+        return self.lifecycle.state
+    
+    @property
+    def version(self) -> str:
+        """Get current key version"""
+        return str(self.lifecycle.version)
+    
+    def is_valid(self) -> bool:
+        """Check if key is valid for use"""
+        return self.lifecycle.is_valid()
+    
+    def activate(self, reason: str = "Manual activation", metadata: Optional[Dict] = None) -> bool:
+        """Activate the key"""
+        result = self.lifecycle.activate(reason, metadata)
+        if result:
+            self.enabled = True
+        return result
+    
+    def suspend(self, reason: str, metadata: Optional[Dict] = None) -> bool:
+        """Suspend the key"""
+        result = self.lifecycle.suspend(reason, metadata)
+        if result:
+            self.enabled = False
+        return result
+    
+    def revoke(self, reason: str, metadata: Optional[Dict] = None) -> bool:
+        """Revoke the key"""
+        result = self.lifecycle.revoke(reason, metadata)
+        if result:
+            self.enabled = False
+        return result
+    
+    def expire(self, reason: str = "Key expired", metadata: Optional[Dict] = None) -> bool:
+        """Mark key as expired"""
+        result = self.lifecycle.expire(reason, metadata)
+        if result:
+            self.enabled = False
+        return result
+    
+    def get_state_history(self) -> List[Dict[str, Any]]:
+        """Get the complete state history"""
+        return self.lifecycle.get_state_history()
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to dictionary"""
-        return {
+        data = {
             'key_id': self.key_id,
             'key_type': self.key_type.value,
             'description': self.description,
@@ -67,13 +203,23 @@ class KeyMetadata:
             'usage_count': self.usage_count,
             'enabled': self.enabled,
             'tags': self.tags or [],
-            'custom_metadata': self.custom_metadata or {}
+            'custom_metadata': self.custom_metadata or {},
+            'rotation_policy': self.rotation_policy.to_dict() if self.rotation_policy else None,
+            'rotated_from': self.rotated_from,
+            'rotated_at': self.rotated_at,
+            'rotated_to': self.rotated_to,
+            'lifecycle': self.lifecycle.to_dict() if hasattr(self, '_lifecycle') and self._lifecycle else None
         }
+        return data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'KeyMetadata':
         """Create metadata from dictionary"""
-        return cls(
+        rotation_policy_data = data.get('rotation_policy')
+        rotation_policy = RotationPolicy.from_dict(rotation_policy_data) if rotation_policy_data else None
+        
+        # Create instance
+        instance = cls(
             key_id=data['key_id'],
             key_type=KeyType(data['key_type']),
             description=data.get('description', ''),
@@ -82,8 +228,18 @@ class KeyMetadata:
             usage_count=data.get('usage_count', 0),
             enabled=data.get('enabled', True),
             tags=data.get('tags'),
-            custom_metadata=data.get('custom_metadata')
+            custom_metadata=data.get('custom_metadata'),
+            rotation_policy=rotation_policy,
+            rotated_from=data.get('rotated_from'),
+            rotated_at=data.get('rotated_at'),
+            rotated_to=data.get('rotated_to')
         )
+        
+        # Set lifecycle if available
+        if 'lifecycle' in data and data['lifecycle']:
+            instance._lifecycle = KeyLifecycle.from_dict(data['lifecycle'])
+        
+        return instance
 
 class KeyManager:
     """
@@ -105,6 +261,8 @@ class KeyManager:
                 backup_retention: int - Number of backups to keep (default: 5)
                 backup_schedule: int - Backup interval in hours (0 for no scheduled backups, default: 24)
                 backup_passphrase: Optional[str] - Passphrase for backups (if None, will prompt when needed)
+                rotation_check_interval: int - Interval in minutes to check for key rotations (default: 60)
+                default_rotation_policy: Dict[str, Any] - Default rotation policy for new keys
         """
         self.config = {
             'backup_enabled': True,
@@ -112,6 +270,13 @@ class KeyManager:
             'backup_retention': 5,
             'backup_schedule': 24,  # hours
             'backup_passphrase': None,
+            'rotation_check_interval': 60,  # minutes
+            'default_rotation_policy': {
+                'max_age_days': 90,
+                'max_usage_count': 1000,
+                'auto_rotate': True,
+                'rotation_interval_days': 30
+            },
             **(config or {})
         }
         
@@ -136,6 +301,9 @@ class KeyManager:
             # Start backup scheduler if enabled
             if self.config['backup_enabled'] and self.config['backup_schedule'] > 0:
                 self._start_backup_scheduler()
+                
+            # Start rotation checker
+            self._start_rotation_checker()
                 
             logger.info(f"KeyManager initialized with HSM: {self._hsm_available}")
             
@@ -251,7 +419,179 @@ class KeyManager:
                     
         except Exception as e:
             logger.warning(f"Failed to clean up old backups: {e}")
+            
+    # Key Lifecycle Management Methods
     
+    def activate_key(self, key_id: str, reason: str = "Manual activation") -> bool:
+        """Activate a key for use.
+        
+        Args:
+            key_id: ID of the key to activate
+            reason: Reason for activation (for audit logging)
+            
+        Returns:
+            bool: True if key was activated, False otherwise
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return False
+            
+        try:
+            metadata = self._key_metadata[key_id]
+            if metadata.activate(reason):
+                self._save_metadata()
+                self._audit_logger.log_key_operation(
+                    'activate',
+                    key_id,
+                    {'reason': reason, 'key_type': metadata.key_type.value}
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to activate key {key_id}: {e}")
+            return False
+            
+    def suspend_key(self, key_id: str, reason: str, metadata: Optional[Dict] = None) -> bool:
+        """Suspend a key to temporarily prevent its use.
+        
+        Args:
+            key_id: ID of the key to suspend
+            reason: Reason for suspension (for audit logging)
+            metadata: Additional metadata about the suspension
+            
+        Returns:
+            bool: True if key was suspended, False otherwise
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return False
+            
+        try:
+            key_metadata = self._key_metadata[key_id]
+            if key_metadata.suspend(reason, metadata):
+                self._save_metadata()
+                self._audit_logger.log_key_operation(
+                    'suspend',
+                    key_id,
+                    {
+                        'reason': reason,
+                        'key_type': key_metadata.key_type.value,
+                        'metadata': metadata or {}
+                    }
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to suspend key {key_id}: {e}")
+            return False
+    
+    def revoke_key(self, key_id: str, reason: str, metadata: Optional[Dict] = None) -> bool:
+        """Revoke a key to permanently prevent its use.
+        
+        Args:
+            key_id: ID of the key to revoke
+            reason: Reason for revocation (for audit logging)
+            metadata: Additional metadata about the revocation
+            
+        Returns:
+            bool: True if key was revoked, False otherwise
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return False
+            
+        try:
+            key_metadata = self._key_metadata[key_id]
+            if key_metadata.revoke(reason, metadata):
+                self._save_metadata()
+                self._audit_logger.log_key_operation(
+                    'revoke',
+                    key_id,
+                    {
+                        'reason': reason,
+                        'key_type': key_metadata.key_type.value,
+                        'metadata': metadata or {}
+                    }
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to revoke key {key_id}: {e}")
+            return False
+    
+    def expire_key(self, key_id: str, reason: str = "Key expired", 
+                  metadata: Optional[Dict] = None) -> bool:
+        """Mark a key as expired.
+        
+        Args:
+            key_id: ID of the key to expire
+            reason: Reason for expiration (for audit logging)
+            metadata: Additional metadata about the expiration
+            
+        Returns:
+            bool: True if key was marked as expired, False otherwise
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return False
+            
+        try:
+            key_metadata = self._key_metadata[key_id]
+            if key_metadata.expire(reason, metadata):
+                self._save_metadata()
+                self._audit_logger.log_key_operation(
+                    'expire',
+                    key_id,
+                    {
+                        'reason': reason,
+                        'key_type': key_metadata.key_type.value,
+                        'metadata': metadata or {}
+                    }
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to expire key {key_id}: {e}")
+            return False
+    
+    def get_key_state(self, key_id: str) -> Optional[Dict[str, Any]]:
+        """Get the current state of a key.
+        
+        Args:
+            key_id: ID of the key
+            
+        Returns:
+            Optional[Dict]: Key state information or None if key not found
+        """
+        if key_id not in self._key_metadata:
+            return None
+            
+        metadata = self._key_metadata[key_id]
+        return {
+            'key_id': key_id,
+            'state': metadata.state.name,
+            'version': str(metadata.version),
+            'is_valid': metadata.is_valid(),
+            'created_at': metadata.created_at,
+            'last_used': metadata.last_used,
+            'usage_count': metadata.usage_count,
+            'enabled': metadata.enabled
+        }
+    
+    def get_key_state_history(self, key_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Get the state change history of a key.
+        
+        Args:
+            key_id: ID of the key
+            
+        Returns:
+            Optional[List[Dict]]: List of state changes or None if key not found
+        """
+        if key_id not in self._key_metadata:
+            return None
+            
+        return self._key_metadata[key_id].get_state_history()
+            
     def _start_backup_scheduler(self) -> None:
         """Start the periodic backup scheduler"""
         import threading
@@ -283,6 +623,31 @@ class KeyManager:
         self._stop_event = threading.Event()
         self._backup_thread = threading.Thread(target=backup_worker, daemon=True)
         self._backup_thread.start()
+        
+    def _start_rotation_checker(self) -> None:
+        """Start the periodic rotation checker"""
+        import threading
+        from datetime import datetime, timedelta
+        
+        def rotation_worker():
+            while not self._rotation_stop_event.is_set():
+                try:
+                    # Check for keys needing rotation
+                    self.check_and_rotate_keys()
+                    
+                    # Sleep for the configured interval
+                    self._rotation_stop_event.wait(
+                        self.config['rotation_check_interval'] * 60  # Convert minutes to seconds
+                    )
+                        
+                except Exception as e:
+                    logger.error(f"Rotation check failed: {e}")
+                    # Don't exit on error, just wait and try again
+                    self._rotation_stop_event.wait(60)  # Wait 1 minute before retrying on error
+        
+        self._rotation_stop_event = threading.Event()
+        self._rotation_thread = threading.Thread(target=rotation_worker, daemon=True)
+        self._rotation_thread.start()
     
     def _get_backup_passphrase(self) -> str:
         """Get backup passphrase from config or prompt user"""
@@ -296,6 +661,196 @@ class KeyManager:
         if not passphrase:
             raise ValueError("Backup passphrase cannot be empty")
         return passphrase
+        
+    def set_rotation_policy(
+        self,
+        key_id: str,
+        max_age_days: Optional[int] = None,
+        max_usage_count: Optional[int] = None,
+        auto_rotate: Optional[bool] = None,
+        rotation_interval_days: Optional[int] = None,
+        next_rotation_time: Optional[float] = None
+    ) -> bool:
+        """Set or update rotation policy for a key
+        
+        Args:
+            key_id: ID of the key to update
+            max_age_days: Maximum age in days before rotation is required
+            max_usage_count: Maximum number of uses before rotation is required
+            auto_rotate: Whether to automatically rotate the key
+            rotation_interval_days: How often to rotate the key if auto_rotate is True
+            next_rotation_time: Timestamp for next rotation (None to calculate from now)
+            
+        Returns:
+            bool: True if policy was updated, False otherwise
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return False
+            
+        metadata = self._key_metadata[key_id]
+        
+        # Create new policy or update existing one
+        if metadata.rotation_policy is None:
+            # Create new policy with defaults from config
+            policy_config = self.config['default_rotation_policy'].copy()
+            metadata.rotation_policy = RotationPolicy(
+                max_age_days=max_age_days or policy_config['max_age_days'],
+                max_usage_count=max_usage_count or policy_config['max_usage_count'],
+                auto_rotate=auto_rotate if auto_rotate is not None else policy_config['auto_rotate'],
+                rotation_interval_days=rotation_interval_days or policy_config['rotation_interval_days']
+            )
+        else:
+            # Update existing policy
+            if max_age_days is not None:
+                metadata.rotation_policy.max_age_days = max_age_days
+            if max_usage_count is not None:
+                metadata.rotation_policy.max_usage_count = max_usage_count
+            if auto_rotate is not None:
+                metadata.rotation_policy.auto_rotate = auto_rotate
+            if rotation_interval_days is not None:
+                metadata.rotation_policy.rotation_interval_days = rotation_interval_days
+                
+        # Update next rotation time if needed
+        if next_rotation_time is not None:
+            metadata.rotation_policy.next_rotation_time = next_rotation_time
+        elif metadata.rotation_policy.auto_rotate and not metadata.rotation_policy.next_rotation_time:
+            # Set initial next rotation time
+            metadata.rotation_policy.next_rotation_time = (
+                time.time() + (metadata.rotation_policy.rotation_interval_days * 86400)
+            )
+            
+        self._save_metadata()
+        logger.info(f"Updated rotation policy for key {key_id}")
+        return True
+        
+    def rotate_key(self, key_id: str) -> Optional[str]:
+        """Rotate a key by creating a new version and marking the old one as rotated
+        
+        Args:
+            key_id: ID of the key to rotate
+            
+        Returns:
+            str: ID of the new key, or None if rotation failed
+        """
+        if key_id not in self._key_metadata:
+            logger.warning(f"Key {key_id} not found")
+            return None
+            
+        old_metadata = self._key_metadata[key_id]
+        
+        # Create a new key with the same parameters
+        try:
+            new_key_id = f"{key_id}_v{int(time.time())}"
+            
+            # Generate new key with same parameters
+            self._hsm.generate_key(
+                key_id=new_key_id,
+                key_type=old_metadata.key_type,
+                **old_metadata.custom_metadata or {}
+            )
+            
+            # Create metadata for new key
+            new_metadata = KeyMetadata(
+                key_id=new_key_id,
+                key_type=old_metadata.key_type,
+                description=f"Rotated from {key_id}",
+                created_at=time.time(),
+                custom_metadata=old_metadata.custom_metadata,
+                rotation_policy=old_metadata.rotation_policy
+            )
+            
+            # Update old key metadata
+            old_metadata.rotated_at = time.time()
+            old_metadata.rotated_to = new_key_id
+            old_metadata.enabled = False  # Disable old key
+            
+            # Update new key metadata
+            new_metadata.rotated_from = key_id
+            
+            # Save both metadata entries
+            self._key_metadata[new_key_id] = new_metadata
+            self._save_metadata()
+            
+            # Log the rotation
+            self._audit_logger.log_key_operation(
+                'rotate',
+                key_id,
+                {
+                    'new_key_id': new_key_id,
+                    'key_type': old_metadata.key_type.value,
+                    'rotation_time': old_metadata.rotated_at
+                }
+            )
+            
+            logger.info(f"Rotated key {key_id} to {new_key_id}")
+            return new_key_id
+            
+        except Exception as e:
+            logger.error(f"Failed to rotate key {key_id}: {e}")
+            return None
+            
+    def check_and_rotate_keys(self) -> Dict[str, str]:
+        """Check all keys and rotate any that meet rotation criteria
+        
+        Returns:
+            Dict[str, str]: Mapping of old key IDs to new key IDs for rotated keys
+        """
+        rotated = {}
+        
+        # Make a copy of keys to avoid modifying during iteration
+        key_ids = list(self._key_metadata.keys())
+        
+        for key_id in key_ids:
+            if key_id not in self._key_metadata:  # Skip if key was deleted during iteration
+                continue
+                
+            metadata = self._key_metadata[key_id]
+            
+            # Skip if key is already rotated or has no rotation policy
+            if not metadata.enabled or not metadata.rotation_policy:
+                continue
+                
+            # Check if key needs rotation
+            if metadata.rotation_policy.needs_rotation(metadata):
+                logger.info(f"Rotating key {key_id} based on rotation policy")
+                new_key_id = self.rotate_key(key_id)
+                if new_key_id:
+                    rotated[key_id] = new_key_id
+                    
+        return rotated
+        
+    def get_key_rotation_history(self, key_id: str) -> List[Dict[str, Any]]:
+        """Get rotation history for a key
+        
+        Args:
+            key_id: ID of the key to get history for
+            
+        Returns:
+            List of rotation events in chronological order
+        """
+        history = []
+        current_id = key_id
+        
+        # Follow the chain of rotated keys
+        while current_id in self._key_metadata:
+            metadata = self._key_metadata[current_id]
+            
+            if metadata.rotated_at:
+                history.append({
+                    'key_id': current_id,
+                    'rotated_at': metadata.rotated_at,
+                    'rotated_to': metadata.rotated_to,
+                    'created_at': metadata.created_at,
+                    'key_type': metadata.key_type.value
+                })
+                
+            # Move to the next key in the chain
+            current_id = metadata.rotated_from or ''
+            
+        # Sort by rotation time (oldest first)
+        history.sort(key=lambda x: x.get('created_at', 0))
+        return history
     
     def _verify_and_recover(self) -> None:
         """Verify metadata integrity and attempt recovery if needed"""
@@ -811,6 +1366,12 @@ class KeyManager:
             self._stop_event.set()
             if self._backup_thread and self._backup_thread.is_alive():
                 self._backup_thread.join(timeout=30)
+        
+        # Stop the rotation thread if running
+        if self._rotation_stop_event:
+            self._rotation_stop_event.set()
+            if self._rotation_thread and self._rotation_thread.is_alive():
+                self._rotation_thread.join(timeout=30)
         
         # Close HSM connection
         if self._hsm:

@@ -238,7 +238,7 @@ import atexit
 atexit.register(SecureMemory.cleanup)
 
 # Convenience function for secure memory allocation
-def secure_alloc(size: int, zero: bool = True) -> SecureMemory:
+def secure_alloc(size: int, zero: bool = True):
     """
     Allocate secure memory.
     
@@ -249,7 +249,18 @@ def secure_alloc(size: int, zero: bool = True) -> SecureMemory:
     Returns:
         SecureMemory instance
     """
-    return SecureMemory(size, zero)
+    return SecureMemory(size, zero=zero)
+
+
+def secure_free(mem):
+    """
+    Securely free memory allocated by secure_alloc.
+    
+    Args:
+        mem: The SecureMemory instance to free
+    """
+    if hasattr(mem, '_release'):
+        mem._release()
 
 # Secure string implementation
 class SecureString:

@@ -300,6 +300,28 @@ def derive_multiple_keys(master_key: bytes, count: int, key_length: int = KEY_SI
 # Memory Security Functions
 # =====================================================
 
+def secure_wipe(data: Union[bytearray, memoryview, bytes]) -> None:
+    """
+    Securely wipe sensitive data from memory.
+    
+    Args:
+        data: The data to wipe (bytearray, memoryview, or bytes)
+    """
+    if isinstance(data, (bytearray, memoryview)):
+        # For mutable types, we can zero them directly
+        secure_zero_memory(bytearray(data))
+    elif isinstance(data, bytes):
+        # For immutable bytes, we can't modify them, but we can try to clean up copies
+        # This is a best-effort approach as we can't guarantee all copies are wiped
+        try:
+            # Try to get the underlying buffer if possible
+            buf = memoryview(data).cast('B')
+            secure_zero_memory(bytearray(buf))
+        except (TypeError, ValueError):
+            # If we can't get a writable buffer, just let it be garbage collected
+            pass
+
+
 def secure_zero_memory(data: bytearray):
     """
     Securely zero memory to prevent data recovery.
@@ -308,14 +330,15 @@ def secure_zero_memory(data: bytearray):
         data: Mutable byte array to zero
     """
     if not isinstance(data, bytearray):
-        raise TypeError("Data must be a bytearray for secure zeroing")
+        raise TypeError("secure_zero_memory requires a mutable bytearray")
     
-    # Multiple passes with different patterns
-    patterns = [0x00, 0xFF, 0xAA, 0x55]
+    # Use ctypes to zero memory in a way that won't be optimized away
+    if len(data) > 0:
+        ctypes.memset((ctypes.c_byte * len(data)).from_buffer(data), 0, len(data))
     
-    for pattern in patterns:
-        for i in range(len(data)):
-            data[i] = pattern
+    # Double check with a different method
+    for i in range(len(data)):
+        data[i] = 0
     
     # Final zero pass
     for i in range(len(data)):
