@@ -221,12 +221,11 @@ class FileBasedHSMSession(HSMSession):
     def is_available(self) -> bool:
         return True  
     
-    def generate_key(self, key_id: str, key_type: str = 'AES-256', 
+    def generate_key(self, key_id: str, key_type: str = 'AES-256',
                     extractable: bool = False) -> HSMKey:
-        key_size = int(key_type.split('-')[-1]) // 8  
+        key_size = int(key_type.split('-')[-1]) // 8
         key_data = os.urandom(key_size)
-        
-        key_path = self.keys_dir / f"{key_id}.json"
+
         key_info = {
             'key_id': key_id,
             'key_type': key_type,
@@ -234,18 +233,24 @@ class FileBasedHSMSession(HSMSession):
             'extractable': extractable,
             'created_at': int(time.time())
         }
-        
+
+        # Create HSMKey object
+        key = HSMKey(
+            key_id=key_id,
+            key_type=key_type,
+            public_data=key_data,  # For symmetric keys, store as public_data
+            attributes={'extractable': extractable, 'created_at': key_info['created_at']}
+        )
+
         # Store the key (in a real HSM, the key would never leave the device)
         key_file = self.keys_dir / f"{key_id}.json"
         with open(key_file, 'w') as f:
-            json.dump({
-                'key_type': key_type,
-                'public_data': key.public_data.hex() if key.public_data else '',
-                'attributes': key.attributes
-            }, f)
+            json.dump(key_info, f)
         os.chmod(key_file, 0o600)
-        
-        self.keys[key_id] = key
+
+        # Cache in memory
+        self.keys[key_id] = key_info
+
         return key
     
     def store_key(self, key_id: str, key_data: bytes, key_type: str = 'GENERIC', 
