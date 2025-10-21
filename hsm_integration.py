@@ -6,6 +6,7 @@ It supports multiple HSM backends and provides a unified interface for cryptogra
 """
 
 import logging
+import time
 from typing import Optional, Union, Tuple, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum, auto
