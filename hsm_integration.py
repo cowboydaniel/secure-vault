@@ -19,7 +19,7 @@ from pathlib import Path
 
 # Import existing security utilities
 from crypto_utils import secure_compare, secure_wipe
-from secure_memory import SecureBuffer
+from secure_memory import SecureBytes
 
 try:
     import pkcs11
