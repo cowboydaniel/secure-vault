@@ -854,12 +854,20 @@ class KeyManager:
     def _verify_and_recover(self) -> None:
         """Verify metadata integrity and attempt recovery if needed"""
         try:
+            # Check if metadata file exists
+            if not self._metadata_file.exists():
+                logger.info("No existing metadata file found - initializing new database")
+                return
+
             # Simple verification - just try to load the metadata
             with open(self._metadata_file, 'r') as f:
                 data = json.load(f)
                 if not isinstance(data, dict):
                     raise ValueError("Invalid metadata format")
-            
+
+        except FileNotFoundError:
+            # Normal on first run
+            logger.info("Metadata file not found - will be created on first key operation")
         except Exception as e:
             logger.error(f"Metadata verification failed: {e}")
             if self.config['backup_enabled']:

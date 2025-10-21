@@ -315,7 +315,42 @@ class FileBasedHSMSession(HSMSession):
         except Exception as e:
             logger.error(f"Failed to retrieve key {key_id}: {e}")
             return None
-            
+
+    def get_key(self, key_id: str) -> Optional[HSMKey]:
+        """
+        Retrieve a key from the HSM as an HSMKey object.
+
+        Args:
+            key_id: The ID of the key to retrieve
+
+        Returns:
+            HSMKey: The key object, or None if not found
+        """
+        try:
+            if key_id in self.keys:
+                key_data = self.keys[key_id]
+            else:
+                # Try to load from file if not in memory
+                key_path = self.keys_dir / f"{key_id}.json"
+                if not key_path.exists():
+                    return None
+
+                with open(key_path, 'r') as f:
+                    key_data = json.load(f)
+                    self.keys[key_id] = key_data  # Cache it
+
+            # Convert to HSMKey object
+            return HSMKey(
+                key_id=key_data['key_id'],
+                key_type=key_data.get('key_type', 'GENERIC'),
+                public_data=bytes.fromhex(key_data.get('key_data', '')) if key_data.get('key_data') else None,
+                attributes=key_data.get('metadata', {})
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to get key {key_id}: {e}")
+            return None
+
     def delete_key(self, key_id: str) -> bool:
         """Delete a key from the HSM"""
         try:
