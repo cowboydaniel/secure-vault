@@ -8,6 +8,7 @@ interface for the Secure Vault application.
 
 import os
 import logging
+import time
 from typing import Optional, Dict, Any, Tuple, List, Union
 from dataclasses import dataclass
 from enum import Enum
@@ -109,7 +110,7 @@ class RotationPolicy:
         )
 
 from key_states import KeyLifecycle, KeyState, KeyVersion
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Union
 
 @dataclass
@@ -595,8 +596,7 @@ class KeyManager:
     def _start_backup_scheduler(self) -> None:
         """Start the periodic backup scheduler"""
         import threading
-        from datetime import datetime, timedelta
-        
+
         def backup_worker():
             while not self._stop_event.is_set():
                 try:
@@ -627,8 +627,7 @@ class KeyManager:
     def _start_rotation_checker(self) -> None:
         """Start the periodic rotation checker"""
         import threading
-        from datetime import datetime, timedelta
-        
+
         def rotation_worker():
             while not self._rotation_stop_event.is_set():
                 try:
