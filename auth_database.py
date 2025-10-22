@@ -14,10 +14,14 @@ Security Notes:
 import sqlite3
 import os
 import logging
+import json
+import hashlib
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
+
+from auth_secrets import get_session_pepper
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,10 @@ class User:
     email_hash: bytes
     password_hash: bytes
     password_salt: bytes
+    password_kdf: str
+    password_kdf_metadata: Dict[str, Any]
+    email_lookup_hash: Optional[bytes]
+    email_salt: Optional[bytes]
     created_at: datetime
     last_login: Optional[datetime]
     is_locked: bool
@@ -46,6 +54,8 @@ class AuthCredentials:
     verification_marker: bytes
     created_at: datetime
     last_updated: datetime
+    kdf_algorithm: str
+    kdf_metadata: Dict[str, Any]
 
 
 @dataclass
@@ -102,8 +112,43 @@ class AuthDatabase:
         # Create database and tables if they don't exist
         self._initialize_database()
 
+        # Apply schema hardening migrations
+        self._apply_migrations()
+
         # Set restrictive file permissions
         self._set_secure_permissions()
+
+    @staticmethod
+    def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
+        """Coerce SQLite timestamp values into ``datetime`` objects."""
+
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value
+
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value)
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                try:
+                    return datetime.fromtimestamp(float(value))
+                except (TypeError, ValueError):
+                    logger.warning("Unable to parse datetime value: %s", value)
+                    return None
+
+        logger.warning("Unexpected datetime value type: %s", type(value))
+        return None
+
+    @staticmethod
+    def _format_datetime(value: datetime) -> str:
+        """Format datetimes for SQLite storage."""
+
+        return value.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     def _initialize_database(self):
         """Create database schema if it doesn't exist"""
@@ -115,8 +160,12 @@ class AuthDatabase:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email_hash BLOB NOT NULL UNIQUE,
+                    email_lookup_hash BLOB UNIQUE,
+                    email_salt BLOB,
                     password_hash BLOB NOT NULL,
                     password_salt BLOB NOT NULL,
+                    password_kdf TEXT NOT NULL DEFAULT 'argon2id',
+                    password_kdf_metadata TEXT NOT NULL DEFAULT '{}',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP,
                     is_locked BOOLEAN DEFAULT 0,
@@ -136,6 +185,8 @@ class AuthDatabase:
                     pin_salt BLOB NOT NULL,
                     encrypted_master_key BLOB NOT NULL,
                     verification_marker BLOB NOT NULL,
+                    kdf_algorithm TEXT NOT NULL DEFAULT 'argon2id',
+                    kdf_metadata TEXT NOT NULL DEFAULT '{}',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -178,6 +229,7 @@ class AuthDatabase:
 
             # Create indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email_hash ON users(email_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email_lookup_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_credentials_user_id ON auth_credentials(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
@@ -193,6 +245,78 @@ class AuthDatabase:
         if os.path.exists(self.db_path):
             os.chmod(self.db_path, 0o600)  # rw------- (owner only)
             logger.debug(f"Set secure permissions (600) on {self.db_path}")
+
+    def _hash_session_token(self, session_id: str) -> str:
+        pepper = get_session_pepper()
+        digest = hashlib.blake2b(session_id.encode('utf-8'), key=pepper, digest_size=32)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _serialize_metadata(metadata: Dict[str, Any]) -> str:
+        return json.dumps(metadata or {}, sort_keys=True)
+
+    @staticmethod
+    def _deserialize_metadata(value: Optional[str]) -> Dict[str, Any]:
+        if not value:
+            return {}
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            logger.warning("Failed to decode metadata JSON: %s", value)
+            return {}
+
+    def _apply_migrations(self) -> None:
+        """Ensure legacy databases receive the hardening columns."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("PRAGMA table_info(users)")
+            user_columns = {row[1] for row in cursor.fetchall()}
+
+            if "email_lookup_hash" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN email_lookup_hash BLOB")
+                cursor.execute("UPDATE users SET email_lookup_hash = email_hash WHERE email_lookup_hash IS NULL")
+
+            if "email_salt" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN email_salt BLOB")
+
+            if "password_kdf" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN password_kdf TEXT DEFAULT 'argon2id'")
+                cursor.execute("UPDATE users SET password_kdf = 'argon2id' WHERE password_kdf IS NULL")
+
+            if "password_kdf_metadata" not in user_columns:
+                cursor.execute("ALTER TABLE users ADD COLUMN password_kdf_metadata TEXT DEFAULT '{}'")
+                cursor.execute("UPDATE users SET password_kdf_metadata = '{}' WHERE password_kdf_metadata IS NULL")
+
+            cursor.execute("PRAGMA table_info(auth_credentials)")
+            cred_columns = {row[1] for row in cursor.fetchall()}
+
+            if "kdf_algorithm" not in cred_columns:
+                cursor.execute("ALTER TABLE auth_credentials ADD COLUMN kdf_algorithm TEXT DEFAULT 'argon2id'")
+                cursor.execute("UPDATE auth_credentials SET kdf_algorithm = 'argon2id' WHERE kdf_algorithm IS NULL")
+
+            if "kdf_metadata" not in cred_columns:
+                cursor.execute("ALTER TABLE auth_credentials ADD COLUMN kdf_metadata TEXT DEFAULT '{}'")
+                cursor.execute("UPDATE auth_credentials SET kdf_metadata = '{}' WHERE kdf_metadata IS NULL")
+
+            cursor.execute("PRAGMA table_info(sessions)")
+            session_columns = {row[1] for row in cursor.fetchall()}
+
+            if "session_id" in session_columns:
+                cursor.execute("SELECT session_id FROM sessions")
+                rows = cursor.fetchall()
+                for (session_id,) in rows:
+                    if not session_id:
+                        continue
+                    # Detect UUID-like tokens to avoid double hashing
+                    if '-' in session_id or len(session_id) in {32, 36}:
+                        hashed = self._hash_session_token(session_id)
+                        cursor.execute(
+                            "UPDATE sessions SET session_id = ? WHERE session_id = ?",
+                            (hashed, session_id),
+                        )
+
+            conn.commit()
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with proper settings"""
@@ -216,11 +340,17 @@ class AuthDatabase:
     def create_user(
         self,
         email_hash: bytes,
+        email_lookup_hash: bytes,
+        email_salt: bytes,
         password_hash: bytes,
         password_salt: bytes,
+        password_kdf: str,
+        password_kdf_metadata: Dict[str, Any],
         pin_salt: bytes,
         encrypted_master_key: bytes,
-        verification_marker: bytes
+        verification_marker: bytes,
+        pin_kdf_algorithm: str,
+        pin_kdf_metadata: Dict[str, Any],
     ) -> int:
         """
         Create a new user account with credentials.
@@ -243,43 +373,90 @@ class AuthDatabase:
             cursor = conn.cursor()
 
             # Insert user
-            cursor.execute("""
-                INSERT INTO users (email_hash, password_hash, password_salt)
-                VALUES (?, ?, ?)
-            """, (email_hash, password_hash, password_salt))
+            cursor.execute(
+                """
+                INSERT INTO users (
+                    email_hash,
+                    email_lookup_hash,
+                    email_salt,
+                    password_hash,
+                    password_salt,
+                    password_kdf,
+                    password_kdf_metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    email_hash,
+                    email_lookup_hash,
+                    email_salt,
+                    password_hash,
+                    password_salt,
+                    password_kdf,
+                    self._serialize_metadata(password_kdf_metadata),
+                ),
+            )
 
             user_id = cursor.lastrowid
 
             # Insert auth credentials
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO auth_credentials
-                (user_id, pin_salt, encrypted_master_key, verification_marker)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, pin_salt, encrypted_master_key, verification_marker))
+                (user_id, pin_salt, encrypted_master_key, verification_marker, kdf_algorithm, kdf_metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    pin_salt,
+                    encrypted_master_key,
+                    verification_marker,
+                    pin_kdf_algorithm,
+                    self._serialize_metadata(pin_kdf_metadata),
+                ),
+            )
 
             conn.commit()
             logger.info(f"Created new user with ID {user_id}")
             return user_id
 
+    def _row_to_user(self, row: sqlite3.Row) -> User:
+        return User(
+            user_id=row['user_id'],
+            email_hash=row['email_hash'],
+            password_hash=row['password_hash'],
+            password_salt=row['password_salt'],
+            password_kdf=row['password_kdf'] or 'argon2id',
+            password_kdf_metadata=self._deserialize_metadata(row['password_kdf_metadata']),
+            email_lookup_hash=row['email_lookup_hash'],
+            email_salt=row['email_salt'],
+            created_at=self._parse_datetime(row['created_at']),
+            last_login=self._parse_datetime(row['last_login']),
+            is_locked=bool(row['is_locked']),
+            failed_attempts=row['failed_attempts'],
+            lockout_until=self._parse_datetime(row['lockout_until'])
+        )
+
     def get_user_by_email_hash(self, email_hash: bytes) -> Optional[User]:
-        """Get user by email hash"""
+        """Get user by legacy email hash"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users WHERE email_hash = ?", (email_hash,))
             row = cursor.fetchone()
 
             if row:
-                return User(
-                    user_id=row['user_id'],
-                    email_hash=row['email_hash'],
-                    password_hash=row['password_hash'],
-                    password_salt=row['password_salt'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
-                    is_locked=bool(row['is_locked']),
-                    failed_attempts=row['failed_attempts'],
-                    lockout_until=datetime.fromisoformat(row['lockout_until']) if row['lockout_until'] else None
-                )
+                return self._row_to_user(row)
+            return None
+
+    def get_user_by_email_lookup_hash(self, email_lookup_hash: bytes) -> Optional[User]:
+        """Get user by peppered lookup hash"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE email_lookup_hash = ?", (email_lookup_hash,))
+            row = cursor.fetchone()
+
+            if row:
+                return self._row_to_user(row)
             return None
 
     def get_user_by_id(self, user_id: int) -> Optional[User]:
@@ -290,17 +467,7 @@ class AuthDatabase:
             row = cursor.fetchone()
 
             if row:
-                return User(
-                    user_id=row['user_id'],
-                    email_hash=row['email_hash'],
-                    password_hash=row['password_hash'],
-                    password_salt=row['password_salt'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
-                    is_locked=bool(row['is_locked']),
-                    failed_attempts=row['failed_attempts'],
-                    lockout_until=datetime.fromisoformat(row['lockout_until']) if row['lockout_until'] else None
-                )
+                return self._row_to_user(row)
             return None
 
     def update_last_login(self, user_id: int):
@@ -314,15 +481,32 @@ class AuthDatabase:
             """, (user_id,))
             conn.commit()
 
-    def update_password(self, user_id: int, password_hash: bytes, password_salt: bytes):
+    def update_password(
+        self,
+        user_id: int,
+        password_hash: bytes,
+        password_salt: bytes,
+        *,
+        password_kdf: Optional[str] = None,
+        password_kdf_metadata: Optional[Dict[str, Any]] = None,
+    ):
         """Update user's password"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE users
-                SET password_hash = ?, password_salt = ?
+                SET password_hash = ?,
+                    password_salt = ?,
+                    password_kdf = COALESCE(?, password_kdf),
+                    password_kdf_metadata = COALESCE(?, password_kdf_metadata)
                 WHERE user_id = ?
-            """, (password_hash, password_salt, user_id))
+            """, (
+                password_hash,
+                password_salt,
+                password_kdf,
+                self._serialize_metadata(password_kdf_metadata) if password_kdf_metadata is not None else None,
+                user_id,
+            ))
             conn.commit()
             logger.info(f"Updated password for user {user_id}")
 
@@ -358,6 +542,28 @@ class AuthDatabase:
             """, (user_id,))
             conn.commit()
 
+    def update_email_identifiers(
+        self,
+        user_id: int,
+        *,
+        email_hash: bytes,
+        email_lookup_hash: bytes,
+        email_salt: bytes,
+    ) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE users
+                SET email_hash = ?,
+                    email_lookup_hash = ?,
+                    email_salt = ?
+                WHERE user_id = ?
+                """,
+                (email_hash, email_lookup_hash, email_salt, user_id),
+            )
+            conn.commit()
+
     def lock_account(self, user_id: int, lockout_duration_minutes: int = 30):
         """Lock account for specified duration"""
         lockout_until = datetime.now() + timedelta(minutes=lockout_duration_minutes)
@@ -368,7 +574,7 @@ class AuthDatabase:
                 UPDATE users
                 SET is_locked = 1, lockout_until = ?
                 WHERE user_id = ?
-            """, (lockout_until.isoformat(), user_id))
+            """, (self._format_datetime(lockout_until), user_id))
             conn.commit()
             logger.warning(f"Locked account {user_id} until {lockout_until}")
 
@@ -418,8 +624,10 @@ class AuthDatabase:
                     pin_salt=row['pin_salt'],
                     encrypted_master_key=row['encrypted_master_key'],
                     verification_marker=row['verification_marker'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_updated=datetime.fromisoformat(row['last_updated']) if row['last_updated'] else None
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_updated=self._parse_datetime(row['last_updated']),
+                    kdf_algorithm=row['kdf_algorithm'] or 'argon2id',
+                    kdf_metadata=self._deserialize_metadata(row['kdf_metadata'])
                 )
             return None
 
@@ -428,7 +636,10 @@ class AuthDatabase:
         user_id: int,
         pin_salt: bytes,
         encrypted_master_key: bytes,
-        verification_marker: bytes
+        verification_marker: bytes,
+        *,
+        kdf_algorithm: Optional[str] = None,
+        kdf_metadata: Optional[Dict[str, Any]] = None,
     ):
         """Update PIN-derived credentials (for PIN reset)"""
         with self._get_connection() as conn:
@@ -438,9 +649,18 @@ class AuthDatabase:
                 SET pin_salt = ?,
                     encrypted_master_key = ?,
                     verification_marker = ?,
-                    last_updated = CURRENT_TIMESTAMP
+                    last_updated = CURRENT_TIMESTAMP,
+                    kdf_algorithm = COALESCE(?, kdf_algorithm),
+                    kdf_metadata = COALESCE(?, kdf_metadata)
                 WHERE user_id = ?
-            """, (pin_salt, encrypted_master_key, verification_marker, user_id))
+            """, (
+                pin_salt,
+                encrypted_master_key,
+                verification_marker,
+                kdf_algorithm,
+                self._serialize_metadata(kdf_metadata) if kdf_metadata is not None else None,
+                user_id,
+            ))
             conn.commit()
             logger.info(f"Updated PIN credentials for user {user_id}")
 
@@ -455,19 +675,24 @@ class AuthDatabase:
         user_agent: Optional[str] = None
     ) -> Session:
         """Create a new session"""
+        session_hash = self._hash_session_token(session_id)
+
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO sessions
                 (session_id, user_id, expires_at, ip_address, user_agent)
                 VALUES (?, ?, ?, ?, ?)
-            """, (session_id, user_id, expires_at.isoformat(), ip_address, user_agent))
+                """,
+                (session_hash, user_id, self._format_datetime(expires_at), ip_address, user_agent),
+            )
             conn.commit()
 
             logger.info(f"Created session {session_id} for user {user_id}")
 
             return Session(
-                session_id=session_id,
+                session_id=session_hash,
                 user_id=user_id,
                 created_at=datetime.now(),
                 expires_at=expires_at,
@@ -478,18 +703,19 @@ class AuthDatabase:
 
     def get_session(self, session_id: str) -> Optional[Session]:
         """Get session by ID"""
+        session_hash = self._hash_session_token(session_id)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,))
+            cursor.execute("SELECT * FROM sessions WHERE session_id = ?", (session_hash,))
             row = cursor.fetchone()
 
             if row:
                 return Session(
                     session_id=row['session_id'],
                     user_id=row['user_id'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    expires_at=datetime.fromisoformat(row['expires_at']) if row['expires_at'] else None,
-                    last_activity=datetime.fromisoformat(row['last_activity']) if row['last_activity'] else None,
+                    created_at=self._parse_datetime(row['created_at']),
+                    expires_at=self._parse_datetime(row['expires_at']),
+                    last_activity=self._parse_datetime(row['last_activity']),
                     ip_address=row['ip_address'],
                     user_agent=row['user_agent']
                 )
@@ -497,20 +723,22 @@ class AuthDatabase:
 
     def update_session_activity(self, session_id: str):
         """Update session's last activity timestamp"""
+        session_hash = self._hash_session_token(session_id)
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE sessions
                 SET last_activity = CURRENT_TIMESTAMP
                 WHERE session_id = ?
-            """, (session_id,))
+            """, (session_hash,))
             conn.commit()
 
     def delete_session(self, session_id: str):
         """Delete session (logout)"""
+        session_hash = self._hash_session_token(session_id)
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+            cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_hash,))
             conn.commit()
             logger.info(f"Deleted session {session_id}")
 
@@ -606,7 +834,7 @@ class AuthDatabase:
                     attempt_id=row['attempt_id'],
                     user_id=row['user_id'],
                     email_hash=row['email_hash'],
-                    timestamp=datetime.fromisoformat(row['timestamp']) if row['timestamp'] else None,
+                    timestamp=self._parse_datetime(row['timestamp']),
                     success=bool(row['success']),
                     attempt_type=row['attempt_type'],
                     ip_address=row['ip_address'],
