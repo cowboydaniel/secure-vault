@@ -5,6 +5,7 @@
 cryptography>=41.0.0         # Modern cryptographic primitives
 pycryptodome>=3.19.0         # Additional crypto algorithms
 PyNaCl>=1.5.0                # libsodium bindings for high-speed crypto
+argon2-cffi>=23.1.0          # Argon2 password hashing for authentication
 
 # Mathematical operations for 512-bit field arithmetic
 numpy>=1.24.0                # Numerical computing for GF(2^512)
