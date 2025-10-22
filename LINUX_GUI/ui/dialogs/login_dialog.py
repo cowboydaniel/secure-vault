@@ -10,9 +10,11 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -69,6 +71,17 @@ class LoginDialog(QDialog):
         self.error_label.setStyleSheet("color: #d9534f;")
         self.error_label.setVisible(False)
         layout.addWidget(self.error_label)
+
+        # Forgot PIN link
+        forgot_layout = QHBoxLayout()
+        forgot_layout.addStretch()
+        self.forgot_pin_btn = QPushButton("Forgot PIN?")
+        self.forgot_pin_btn.setFlat(True)
+        self.forgot_pin_btn.setStyleSheet("QPushButton { color: #4a9eff; text-decoration: underline; border: none; }")
+        self.forgot_pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.forgot_pin_btn.clicked.connect(self.on_forgot_pin)
+        forgot_layout.addWidget(self.forgot_pin_btn)
+        layout.addLayout(forgot_layout)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -153,6 +166,30 @@ class LoginDialog(QDialog):
             "GUI authentication failure",
             {"email_hash": email_hash, "reason": reason, "message": message},
         )
+
+    def on_forgot_pin(self) -> None:
+        """Handle the Forgot PIN button click."""
+        from LINUX_GUI.ui.dialogs.account_recovery_dialog import AccountRecoveryDialog
+
+        dialog = AccountRecoveryDialog(
+            auth_manager=self.auth_manager,
+            audit_logger=self.audit_logger,
+            parent=self
+        )
+
+        result = dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted and dialog.recovery_successful:
+            QMessageBox.information(
+                self,
+                "Recovery Complete",
+                "Your PIN has been reset. Please log in with your new PIN.",
+            )
+            # Pre-fill email if it was entered
+            if dialog.email_edit.text():
+                self.email_edit.setText(dialog.email_edit.text())
+            self.pin_edit.clear()
+            self.pin_edit.setFocus()
 
     @staticmethod
     def _wipe_secret(pin: Optional[str]) -> None:
