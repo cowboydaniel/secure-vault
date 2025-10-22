@@ -49,9 +49,15 @@ class AccountRecoveryDialog(QDialog):
         # Header
         header = QLabel(
             "<h3>Reset Your PIN</h3>"
-            "<p>If you've forgotten your PIN, you can reset it using your email and password. "
-            "<strong>Warning:</strong> Resetting your PIN will generate a new master key, and "
-            "you will lose access to files encrypted with the old key.</p>"
+            "<p>If you've forgotten your PIN, you can reset it using your email and password.</p>"
+            "<p><strong style='color: #ff4444;'>⚠️ CRITICAL WARNING:</strong></p>"
+            "<ul>"
+            "<li><strong style='color: #ff4444;'>You will LOSE ACCESS to all currently encrypted files</strong></li>"
+            "<li>A new master encryption key will be generated</li>"
+            "<li>The old master key cannot be recovered without the old PIN</li>"
+            "<li>This is a security design trade-off, not a bug</li>"
+            "</ul>"
+            "<p><strong>Before proceeding:</strong> Backup any encrypted files you want to keep and decrypt them with your old PIN if possible.</p>"
         )
         header.setWordWrap(True)
         header.setTextFormat(Qt.TextFormat.RichText)
