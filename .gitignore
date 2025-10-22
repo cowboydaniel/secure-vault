@@ -54,4 +54,12 @@ htmlcov/
 # Secure Vault specific
 *.sec
 *.vault
+*.db
+users.db
 storage_benchmark_debug.log
+
+# Instance guard and auth state (NEVER COMMIT THESE)
+instance_state.json
+instance_guard_state.json
+.state/
+state/

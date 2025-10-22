@@ -103,6 +103,10 @@ A revolutionary encryption system that combines multiple layers of security to p
    ./build_liboqs.sh
    ```
 
+### First-Time Setup
+
+If you encounter a "tampering detected" error on first run, see [FIRST_RUN.md](FIRST_RUN.md) for initialization instructions. This is a security feature that ensures each installation is uniquely bound to prevent database tampering.
+
 ## 🛠️ Usage
 
 ### Encrypt a file
