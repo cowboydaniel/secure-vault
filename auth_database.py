@@ -1041,6 +1041,7 @@ class AuthDatabase:
         status = guard.status
 
         if row is None:
+            if not guard.allows_initial_binding():
             if status == "provisioned":
                 guard.lockdown("missing_instance_secret")
                 raise TamperDetectedError(

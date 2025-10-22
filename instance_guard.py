@@ -39,6 +39,7 @@ class InstanceGuard:
         self.state_path = self.state_dir / self.STATE_FILENAME
         self.db_path = Path(db_path)
         self._state: Dict[str, Any] = {}
+        self._fresh_state = False
         self._state = self._load_or_initialize_state()
 
     # ------------------------------------------------------------------
@@ -54,6 +55,11 @@ class InstanceGuard:
 
             if "secret" not in data:
                 raise InstanceStateError("Instance guard state missing secret")
+
+            if data.get("status") not in {"pending", "provisioned", "locked"}:
+                raise InstanceStateError("Instance guard state status is invalid")
+
+            self._fresh_state = False
             return data
 
         secret_bytes = secrets.token_bytes(32)
@@ -65,6 +71,7 @@ class InstanceGuard:
             "updated_at": datetime.utcnow().isoformat(),
         }
         self._write_state(state)
+        self._fresh_state = True
         return state
 
     def _write_state(self, state: Dict[str, Any]) -> None:
@@ -90,6 +97,11 @@ class InstanceGuard:
             raise InstanceStateError("Instance guard secret is invalid")
         return base64.b64decode(secret.encode("utf-8"))
 
+    def allows_initial_binding(self) -> bool:
+        """Return True when the guard may legitimately initialize bindings."""
+
+        return self._fresh_state and self.status == "pending"
+
     def verify_environment(self, db: "AuthDatabase") -> None:
         """Confirm that the authentication database matches the guard state."""
 
@@ -102,6 +114,13 @@ class InstanceGuard:
         status = self.status
 
         if stored_hash is None:
+            if self._fresh_state and not db.has_users():
+                return
+
+            self.lockdown("missing_instance_secret")
+            raise TamperDetectedError(
+                "Authentication store integrity verification failed; manual recovery required."
+            )
             if status == "provisioned" or db.has_users():
                 self.lockdown("missing_instance_secret")
                 raise TamperDetectedError(

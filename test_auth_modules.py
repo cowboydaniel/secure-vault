@@ -1,5 +1,17 @@
 """Unit tests for SecureVault authentication components."""
 
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from auth_database import AuthDatabase
+from auth_manager import AuthManager, InvalidCredentialsError
+from instance_guard import InstanceGuard, TamperDetectedError
+from pin_manager import PINManager, PINValidationError
+from rate_limiter import AccountLockedError, RateLimitError
+from user_manager import UserManager, UserExistsError
 import os
 import tempfile
 import unittest
@@ -160,6 +172,35 @@ class AuthenticationTestCase(unittest.TestCase):
             password="Sup3rSecurePass!",
             pin="839201",
         )
+
+        self.db.close()
+        os.remove(self.db_path)
+
+        with self.assertRaises(TamperDetectedError):
+            AuthDatabase(db_path=self.db_path)
+
+    def test_guard_state_reversion_detected(self) -> None:
+        """Reverting the guard state to pending should be treated as tampering."""
+
+        self.user_manager.create_user(
+            email="owner@example.com",
+            password="Secur3OwnerPass!",
+            pin="746291",
+        )
+
+        state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME
+        with state_path.open("r", encoding="utf-8") as handle:
+            state_data = json.load(handle)
+
+        state_data["status"] = "pending"
+        state_data.pop("locked_at", None)
+        state_data.pop("lock_reason", None)
+
+        tmp_path = state_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(state_data, handle, indent=2, sort_keys=True)
+        os.replace(tmp_path, state_path)
+        os.chmod(state_path, 0o600)
 
         self.db.close()
         os.remove(self.db_path)

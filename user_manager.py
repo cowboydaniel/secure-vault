@@ -126,6 +126,11 @@ class UserManager:
         email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
         email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
 
+
+        # Step 2: Hash email for storage and lookup
+        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+
         # Step 2: Hash email for storage and lookup
         email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
         email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
