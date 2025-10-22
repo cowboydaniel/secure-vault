@@ -709,8 +709,7 @@ class AuthDatabase:
                     created_at=self._parse_datetime(row['created_at']),
                     last_updated=self._parse_datetime(row['last_updated']),
                     kdf_algorithm=row['kdf_algorithm'] or 'argon2id',
-                    kdf_metadata=self._deserialize_metadata(row['kdf_metadata'])
-                    last_updated=self._parse_datetime(row['last_updated'])
+                    kdf_metadata=self._deserialize_metadata(row['kdf_metadata']),
                 )
             return None
 
@@ -770,7 +769,6 @@ class AuthDatabase:
                 """,
                 (session_hash, user_id, self._format_datetime(expires_at), ip_address, user_agent),
             )
-            """, (session_id, user_id, self._format_datetime(expires_at), ip_address, user_agent))
             conn.commit()
 
             logger.info(f"Created session {session_id} for user {user_id}")
@@ -1042,8 +1040,8 @@ class AuthDatabase:
 
         if row is None:
             if not guard.allows_initial_binding():
-            if status == "provisioned":
-                guard.lockdown("missing_instance_secret")
+                reason = "missing_instance_secret" if status == "provisioned" else "initial_binding_blocked"
+                guard.lockdown(reason)
                 raise TamperDetectedError(
                     "Authentication store integrity verification failed; manual recovery required."
                 )

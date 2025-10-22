@@ -10,6 +10,7 @@ import platform
 import ctypes
 import ctypes.util
 import logging
+import threading
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum, auto
 

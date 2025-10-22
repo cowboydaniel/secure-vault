@@ -198,8 +198,8 @@ class UserManager:
             # Wipe sensitive data from memory
             secure_wipe(master_key)
             secure_wipe(pin_derived_key)
-            secure_wipe(password.encode('utf-8'))
-            secure_wipe(pin.encode('utf-8'))
+            secure_wipe(bytearray(password, 'utf-8'))
+            secure_wipe(bytearray(pin, 'utf-8'))
 
     def validate_email(self, email: str) -> None:
         """
@@ -324,7 +324,7 @@ class UserManager:
         Returns:
             Tuple of (password_hash, salt, algorithm_name, metadata)
         """
-        password_bytes = password.encode('utf-8')
+        password_bytes = bytearray(password, 'utf-8')
 
         try:
             if ARGON2_AVAILABLE:
@@ -338,7 +338,7 @@ class UserManager:
                 parallelism = 4
                 hash_len = 32
                 password_hash = hash_secret_raw(
-                    secret=password_bytes,
+                    secret=bytes(password_bytes),
                     salt=salt,
                     time_cost=time_cost,
                     memory_cost=memory_cost,
@@ -372,7 +372,7 @@ class UserManager:
                     iterations=iterations,
                 )
 
-                password_hash = kdf.derive(password_bytes)
+                password_hash = kdf.derive(bytes(password_bytes))
                 metadata = {
                     "algorithm": "pbkdf2_sha256",
                     "iterations": iterations,
@@ -399,7 +399,7 @@ class UserManager:
         if not user:
             return False
 
-        password_bytes = password.encode('utf-8')
+        password_bytes = bytearray(password, 'utf-8')
 
         try:
             algorithm = (user.password_kdf or 'argon2id').lower()
@@ -412,7 +412,7 @@ class UserManager:
 
                 params = Argon2Params.from_metadata(metadata)
                 attempted_hash = hash_secret_raw(
-                    secret=password_bytes,
+                    secret=bytes(password_bytes),
                     salt=user.password_salt,
                     time_cost=params.time_cost,
                     memory_cost=params.memory_cost,
@@ -434,7 +434,7 @@ class UserManager:
                     salt=user.password_salt,
                     iterations=iterations,
                 )
-                attempted_hash = kdf.derive(password_bytes)
+                attempted_hash = kdf.derive(bytes(password_bytes))
             else:
                 logger.error("Unsupported password KDF '%s'", algorithm)
                 return False
@@ -580,7 +580,7 @@ class UserManager:
             # Wipe sensitive data
             secure_wipe(master_key)
             secure_wipe(pin_derived_key)
-            secure_wipe(new_pin.encode('utf-8'))
+            secure_wipe(bytearray(new_pin, 'utf-8'))
 
     def get_user_by_email(self, email: str) -> Optional[User]:
         """

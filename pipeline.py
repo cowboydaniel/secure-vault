@@ -890,7 +890,8 @@ class MultiLayerPipeline:
         finally:
             # Ensure we clean up any sensitive data
             if 'reconstructed_data' in locals():
-                secure_wipe(reconstructed_data)
+                if isinstance(reconstructed_data, (bytearray, memoryview)):
+                    secure_wipe(reconstructed_data)
             
             # Log the operation
             processing_time = time.time() - start_time

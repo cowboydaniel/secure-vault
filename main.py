@@ -19,6 +19,7 @@ import argparse
 import logging
 import time
 import atexit
+import ctypes
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -32,9 +33,10 @@ from pipeline import MultiLayerPipeline, PipelineConfiguration
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
-from crypto_utils import validate_entropy_quality
+from crypto_utils import validate_entropy_quality, secure_wipe
 from cli_auth import CLIAuthenticator, AuthenticationFlowError
 from rng_manager import get_rng_manager
+from secure_memory import secure_alloc, secure_free
 
 def setup_logging(verbose: bool = False):
     """Setup logging configuration"""
@@ -155,7 +157,6 @@ def decrypt_file_interactive():
     from custom_cipher import Cipher512
     from storage_layer import SecureStorageEngine
     from secure_storage import get_secure_storage
-    from secure_memory import SecureBytes, secure_alloc
     
     # Get secure storage instance
     secure_storage = get_secure_storage()
@@ -358,22 +359,29 @@ def decrypt_file_interactive():
                 print("\nReconstructing original data...")
                 
                 # Use secure memory for reconstructed data
-                with secure_alloc(selected_file['size']) as secure_buffer:
-                    reconstructed_data = ida_manager.reconstruct()
-                    
-                    # Copy to secure buffer
-                    secure_buf = (ctypes.c_byte * len(reconstructed_data)).from_address(secure_buffer.address)
-                    for i, b in enumerate(reconstructed_data):
-                        secure_buf[i] = b
-                    
-                    # Securely erase the original data
-                    if hasattr(reconstructed_data, 'tobytes'):
-                        reconstructed_data = reconstructed_data.tobytes()
-                    if isinstance(reconstructed_data, (bytes, bytearray)):
-                        secure_alloc(len(reconstructed_data)).zero()
-                    
-                    # Continue with secure_buffer for further processing
-                    reconstructed_data = bytes(secure_buf)
+                reconstructed_raw = ida_manager.reconstruct()
+                if isinstance(reconstructed_raw, bytearray):
+                    reconstructed_buffer = reconstructed_raw
+                elif hasattr(reconstructed_raw, 'tobytes'):
+                    reconstructed_buffer = bytearray(reconstructed_raw.tobytes())
+                else:
+                    reconstructed_buffer = bytearray(reconstructed_raw)
+
+                data_len = len(reconstructed_buffer)
+                secure_buffer = secure_alloc(data_len)
+                try:
+                    if data_len:
+                        secure_view = (ctypes.c_ubyte * data_len).from_address(secure_buffer.address)
+                        secure_view[:data_len] = reconstructed_buffer
+                    secure_wipe(reconstructed_buffer)
+                    reconstructed_data = (
+                        bytes((ctypes.c_ubyte * data_len).from_address(secure_buffer.address))
+                        if data_len
+                        else b""
+                    )
+                finally:
+                    secure_free(secure_buffer)
+                del reconstructed_raw
                 
                 # Parse the reconstructed data
                 # In a real implementation, you would need to parse the metadata
