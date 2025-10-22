@@ -166,6 +166,12 @@ class EntropyAccumulator:
                 self.key.write(new_key)
                 secure_wipe(key_material)
                 secure_wipe(new_key)
+                key_material = self.key.read()
+                hasher.update(key_material)
+                hasher.update(combined)
+                new_key = hasher.digest()
+                self.key.write(new_key)
+                secure_wipe(bytearray(key_material))
             secure_wipe(combined)
 
             self.counter += 1
@@ -204,6 +210,10 @@ class EntropyAccumulator:
                     hasher.update(key_material)
                     hasher.update(counter_bytes)
                     block = bytearray(hasher.digest())
+                    key_material = self.key.read()
+                    hasher.update(key_material)
+                    hasher.update(self.counter.to_bytes(8, 'big'))
+                    block = hasher.digest()
 
                     # Update the key for the next iteration
                     hasher = hashlib.sha512()
@@ -213,6 +223,8 @@ class EntropyAccumulator:
                     self.key.write(next_key)
                     secure_wipe(key_material)
                     secure_wipe(next_key)
+                    self.key.write(hasher.digest())
+                    secure_wipe(bytearray(key_material))
 
                     self.counter += 1
 
@@ -221,6 +233,7 @@ class EntropyAccumulator:
                 result.extend(memoryview(block)[:take])
                 remaining -= take
                 secure_wipe(block)
+                secure_wipe(bytearray(block))
 
             return bytes(result[:num_bytes])
     
