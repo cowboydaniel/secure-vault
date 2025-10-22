@@ -33,6 +33,7 @@ from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
 from crypto_utils import validate_entropy_quality
+from cli_auth import CLIAuthenticator, AuthenticationFlowError
 from rng_manager import get_rng_manager
 
 def setup_logging(verbose: bool = False):
@@ -1215,15 +1216,26 @@ def main():
         # Print banner and check requirements
         print_banner()
         check_system_requirements()
-        
+
         # Start entropy monitoring and accumulator
         # Note: start_monitoring() will also start the accumulator
         start_monitoring()
-        
+
     except Exception as e:
         print(f"System requirements not met: {e}")
         return 1
-    
+
+    authenticator = CLIAuthenticator()
+    session = None
+    try:
+        session = authenticator.ensure_authenticated_session()
+    except AuthenticationFlowError as exc:
+        logging.getLogger('secure_vault').error(f"Authentication failed: {exc}")
+        return 1
+    except KeyboardInterrupt:
+        logging.getLogger('secure_vault').info("Authentication cancelled by user")
+        return 130
+
     # Handle commands
     try:
         if args.command == 'encrypt':
@@ -1265,7 +1277,9 @@ def main():
         logger.exception("An unexpected error occurred")
         return 1
     finally:
-        # Ensure secure storage is cleaned up
+        # Ensure secure storage is cleaned up and session terminated
+        if session is not None:
+            authenticator.logout(session)
         cleanup_secure_storage()
     
     # Main menu loop
