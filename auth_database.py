@@ -457,6 +457,17 @@ class AuthDatabase:
 
             if row:
                 return self._row_to_user(row)
+                return User(
+                    user_id=row['user_id'],
+                    email_hash=row['email_hash'],
+                    password_hash=row['password_hash'],
+                    password_salt=row['password_salt'],
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_login=self._parse_datetime(row['last_login']),
+                    is_locked=bool(row['is_locked']),
+                    failed_attempts=row['failed_attempts'],
+                    lockout_until=self._parse_datetime(row['lockout_until'])
+                )
             return None
 
     def get_user_by_id(self, user_id: int) -> Optional[User]:
@@ -468,6 +479,17 @@ class AuthDatabase:
 
             if row:
                 return self._row_to_user(row)
+                return User(
+                    user_id=row['user_id'],
+                    email_hash=row['email_hash'],
+                    password_hash=row['password_hash'],
+                    password_salt=row['password_salt'],
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_login=self._parse_datetime(row['last_login']),
+                    is_locked=bool(row['is_locked']),
+                    failed_attempts=row['failed_attempts'],
+                    lockout_until=self._parse_datetime(row['lockout_until'])
+                )
             return None
 
     def update_last_login(self, user_id: int):
@@ -628,6 +650,7 @@ class AuthDatabase:
                     last_updated=self._parse_datetime(row['last_updated']),
                     kdf_algorithm=row['kdf_algorithm'] or 'argon2id',
                     kdf_metadata=self._deserialize_metadata(row['kdf_metadata'])
+                    last_updated=self._parse_datetime(row['last_updated'])
                 )
             return None
 
@@ -687,6 +710,7 @@ class AuthDatabase:
                 """,
                 (session_hash, user_id, self._format_datetime(expires_at), ip_address, user_agent),
             )
+            """, (session_id, user_id, self._format_datetime(expires_at), ip_address, user_agent))
             conn.commit()
 
             logger.info(f"Created session {session_id} for user {user_id}")
