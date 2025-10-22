@@ -21,6 +21,7 @@ from auth_manager import AuthManager
 from pin_manager import PINValidationError
 from secure_memory import secure_wipe
 from user_manager import UserExistsError, UserManager, ValidationError
+from LINUX_GUI.widgets.secure_password_input import SecurePasswordInput
 
 
 logger = logging.getLogger(__name__)
@@ -66,18 +67,20 @@ class _CredentialsPage(QWizardPage):
         self.email_edit = QLineEdit()
         self.email_edit.setPlaceholderText("name@example.com")
 
-        self.password_edit = QLineEdit()
-        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        # Use SecurePasswordInput with strength meter
+        self.password_widget = SecurePasswordInput()
+        self.password_widget.input_field.setPlaceholderText("Enter a strong password")
 
         self.confirm_password_edit = QLineEdit()
         self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirm_password_edit.setPlaceholderText("Re-enter password")
 
         layout.addRow("Email:", self.email_edit)
-        layout.addRow("Password:", self.password_edit)
+        layout.addRow("Password:", self.password_widget)
         layout.addRow("Confirm Password:", self.confirm_password_edit)
 
         self.registerField("email*", self.email_edit)
-        self.registerField("password*", self.password_edit)
+        self.registerField("password*", self.password_widget.input_field)
         self.registerField("confirm_password*", self.confirm_password_edit)
 
 
