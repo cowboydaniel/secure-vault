@@ -54,14 +54,31 @@ class AuthenticationTestCase(unittest.TestCase):
         user_id = self.user_manager.create_user(email=email, password=password, pin=pin)
         self.assertIsInstance(user_id, int)
 
+        db_user = self.db.get_user_by_id(user_id)
+        self.assertIsNotNone(db_user.email_lookup_hash)
+        self.assertIsNotNone(db_user.email_salt)
+        self.assertEqual(16, len(db_user.email_salt))
+        self.assertEqual('argon2id', db_user.password_kdf)
+        self.assertIn('time_cost', db_user.password_kdf_metadata)
+
         session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
         self.assertIsNotNone(session)
         self.assertEqual(user_id, session.user_id)
         self.assertEqual(32, len(session.get_master_key()))
 
+        credentials = self.db.get_credentials(user_id)
+        self.assertEqual('argon2id', credentials.kdf_algorithm)
+        self.assertIn('memory_cost', credentials.kdf_metadata)
+
         # Session should remain retrievable until logout
         retrieved = self.auth_manager.get_session(session.session_id)
         self.assertIsNotNone(retrieved)
+
+        stored_session = self.db.get_session(session.session_id)
+        self.assertIsNotNone(stored_session)
+        self.assertNotEqual(stored_session.session_id, session.session_id)
+        self.assertEqual(64, len(stored_session.session_id))
+        self.assertNotIn('-', stored_session.session_id)
 
         self.auth_manager.logout(session.session_id)
         self.assertIsNone(self.auth_manager.get_session(session.session_id))

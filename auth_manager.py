@@ -192,7 +192,7 @@ class AuthManager:
         if not user:
             # Don't reveal that user doesn't exist
             # Record attempt with email hash for tracking
-            email_hash = self.pin_manager.hash_email(email)
+            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_hash,
@@ -211,7 +211,7 @@ class AuthManager:
             # Record locked/rate-limited attempt
             self.db.record_auth_attempt(
                 user_id=user.user_id,
-                email_hash=user.email_hash,
+                email_hash=user.email_lookup_hash or user.email_hash,
                 success=False,
                 attempt_type='pin',
                 ip_address=ip_address,
@@ -229,7 +229,9 @@ class AuthManager:
             # Derive key from PIN
             pin_derived_key = self.pin_manager.derive_key_from_pin(
                 pin,
-                credentials.pin_salt
+                credentials.pin_salt,
+                algorithm=credentials.kdf_algorithm,
+                metadata=credentials.kdf_metadata,
             )
 
             # Attempt to decrypt master key
@@ -246,7 +248,7 @@ class AuthManager:
 
                 self.db.record_auth_attempt(
                     user_id=user.user_id,
-                    email_hash=user.email_hash,
+                    email_hash=user.email_lookup_hash or user.email_hash,
                     success=False,
                     attempt_type='pin',
                     ip_address=ip_address,
@@ -269,6 +271,42 @@ class AuthManager:
             # Authentication successful!
             self.rate_limiter.record_successful_attempt(user.user_id)
 
+            # Upgrade email hashing scheme if necessary
+            if not user.email_salt or not user.email_lookup_hash:
+                new_email_hash, new_email_salt = self.pin_manager.hash_email_for_storage(email)
+                new_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+
+                associated_data_new = new_email_hash + b"master_key"
+                encrypted_master_key = self.pin_manager.encrypt_master_key(
+                    master_key,
+                    pin_derived_key,
+                    associated_data_new,
+                )
+
+                verification_marker = self.pin_manager.create_verification_marker(
+                    master_key,
+                    new_email_hash + b"verification",
+                )
+
+                self.db.update_pin_credentials(
+                    user.user_id,
+                    credentials.pin_salt,
+                    encrypted_master_key,
+                    verification_marker,
+                    kdf_algorithm=credentials.kdf_algorithm,
+                    kdf_metadata=credentials.kdf_metadata,
+                )
+                self.db.update_email_identifiers(
+                    user.user_id,
+                    email_hash=new_email_hash,
+                    email_lookup_hash=new_lookup_hash,
+                    email_salt=new_email_salt,
+                )
+
+                user.email_hash = new_email_hash
+                user.email_lookup_hash = new_lookup_hash
+                user.email_salt = new_email_salt
+
             # Create session
             session = self._create_session(user.user_id, master_key, ip_address)
 
@@ -278,7 +316,7 @@ class AuthManager:
             # Record successful attempt
             self.db.record_auth_attempt(
                 user_id=user.user_id,
-                email_hash=user.email_hash,
+                email_hash=user.email_lookup_hash or user.email_hash,
                 success=True,
                 attempt_type='pin',
                 ip_address=ip_address,
@@ -322,7 +360,7 @@ class AuthManager:
         user = self.user_manager.get_user_by_email(email)
         if not user:
             # Don't reveal that user doesn't exist
-            email_hash = self.pin_manager.hash_email(email)
+            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_hash,
@@ -339,7 +377,7 @@ class AuthManager:
         except (RateLimitError, AccountLockedError) as e:
             self.db.record_auth_attempt(
                 user_id=user.user_id,
-                email_hash=user.email_hash,
+                email_hash=user.email_lookup_hash or user.email_hash,
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,
@@ -353,7 +391,7 @@ class AuthManager:
 
             self.db.record_auth_attempt(
                 user_id=user.user_id,
-                email_hash=user.email_hash,
+                email_hash=user.email_lookup_hash or user.email_hash,
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,
@@ -368,7 +406,7 @@ class AuthManager:
 
         self.db.record_auth_attempt(
             user_id=user.user_id,
-            email_hash=user.email_hash,
+            email_hash=user.email_lookup_hash or user.email_hash,
             success=True,
             attempt_type='password',
             ip_address=ip_address,

@@ -17,11 +17,11 @@ Security Notes:
 
 import re
 import logging
-from typing import Optional, Tuple
+import hmac
+from typing import Optional, Tuple, Dict
 from dataclasses import dataclass
 
 try:
-    from argon2 import PasswordHasher
     from argon2.low_level import hash_secret_raw, Type
     ARGON2_AVAILABLE = True
 except ImportError:
@@ -29,7 +29,7 @@ except ImportError:
     logging.warning("argon2-cffi not available")
 
 from auth_database import AuthDatabase, User
-from pin_manager import PINManager, PINValidationError
+from pin_manager import PINManager, PINValidationError, Argon2Params
 from secure_memory import secure_wipe
 
 logger = logging.getLogger(__name__)
@@ -81,19 +81,6 @@ class UserManager:
         self.policy = password_policy or PasswordPolicy()
         self.pin_manager = PINManager()
 
-        # Initialize Argon2 password hasher
-        if ARGON2_AVAILABLE:
-            self.password_hasher = PasswordHasher(
-                time_cost=3,           # Number of iterations
-                memory_cost=65536,     # 64 MB
-                parallelism=4,         # 4 threads
-                hash_len=32,           # 256-bit hash
-                salt_len=16            # 128-bit salt
-            )
-        else:
-            self.password_hasher = None
-            logger.warning("Argon2 not available - password hashing will use fallback")
-
     def create_user(
         self,
         email: str,
@@ -130,16 +117,20 @@ class UserManager:
         self.validate_password(password)
         self.pin_manager.validate_pin_format(pin)
 
-        # Step 2: Hash email for storage
-        email_hash = self.pin_manager.hash_email(email)
+        # Step 2: Hash email for storage and lookup
+        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
 
-        # Check if user already exists
-        existing_user = self.db.get_user_by_email_hash(email_hash)
+        # Check if user already exists (peppered hash first, legacy fallback)
+        existing_user = self.db.get_user_by_email_lookup_hash(email_lookup_hash)
+        if not existing_user:
+            legacy_hash = self.pin_manager.hash_email_legacy(email)
+            existing_user = self.db.get_user_by_email_hash(legacy_hash)
         if existing_user:
             raise UserExistsError(f"An account with this email already exists")
 
         # Step 3: Hash password with Argon2id
-        password_hash, password_salt = self._hash_password(password)
+        password_hash, password_salt, password_kdf, password_kdf_metadata = self._hash_password(password)
 
         # Step 4: Generate master vault key (256-bit random)
         master_key = self.pin_manager.generate_master_key()
@@ -147,7 +138,13 @@ class UserManager:
         try:
             # Step 5: Generate PIN salt and derive key
             pin_salt = self.pin_manager.generate_salt()
-            pin_derived_key = self.pin_manager.derive_key_from_pin(pin, pin_salt)
+            pin_kdf_metadata = self.pin_manager.export_kdf_metadata()
+            pin_derived_key = self.pin_manager.derive_key_from_pin(
+                pin,
+                pin_salt,
+                algorithm=pin_kdf_metadata.get("algorithm"),
+                metadata=pin_kdf_metadata,
+            )
 
             # Step 6: Encrypt master key with PIN-derived key
             associated_data = email_hash + b"master_key"
@@ -167,11 +164,17 @@ class UserManager:
             # Step 8: Store in database
             user_id = self.db.create_user(
                 email_hash=email_hash,
+                email_lookup_hash=email_lookup_hash,
+                email_salt=email_salt,
                 password_hash=password_hash,
                 password_salt=password_salt,
+                password_kdf=password_kdf,
+                password_kdf_metadata=password_kdf_metadata,
                 pin_salt=pin_salt,
                 encrypted_master_key=encrypted_master_key,
-                verification_marker=verification_marker
+                verification_marker=verification_marker,
+                pin_kdf_algorithm=pin_kdf_metadata.get("algorithm", "argon2id"),
+                pin_kdf_metadata=pin_kdf_metadata,
             )
 
             logger.info(f"Created new user account with ID {user_id}")
@@ -297,7 +300,7 @@ class UserManager:
 
         return score, descriptions[score]
 
-    def _hash_password(self, password: str) -> Tuple[bytes, bytes]:
+    def _hash_password(self, password: str) -> Tuple[bytes, bytes, str, Dict[str, int]]:
         """
         Hash password with Argon2id.
 
@@ -305,7 +308,7 @@ class UserManager:
             password: Plaintext password
 
         Returns:
-            Tuple of (password_hash, salt)
+            Tuple of (password_hash, salt, algorithm_name, metadata)
         """
         password_bytes = password.encode('utf-8')
 
@@ -316,17 +319,29 @@ class UserManager:
                 salt = os.urandom(16)
 
                 # Hash with Argon2id
+                time_cost = 3
+                memory_cost = 65536
+                parallelism = 4
+                hash_len = 32
                 password_hash = hash_secret_raw(
                     secret=password_bytes,
                     salt=salt,
-                    time_cost=3,
-                    memory_cost=65536,
-                    parallelism=4,
-                    hash_len=32,
+                    time_cost=time_cost,
+                    memory_cost=memory_cost,
+                    parallelism=parallelism,
+                    hash_len=hash_len,
                     type=Type.ID
                 )
 
-                return password_hash, salt
+                metadata = {
+                    "algorithm": "argon2id",
+                    "time_cost": time_cost,
+                    "memory_cost": memory_cost,
+                    "parallelism": parallelism,
+                    "hash_length": hash_len,
+                }
+
+                return password_hash, salt, "argon2id", metadata
             else:
                 # Fallback to PBKDF2
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -335,15 +350,21 @@ class UserManager:
 
                 salt = os.urandom(16)
 
+                iterations = 600000
                 kdf = PBKDF2HMAC(
                     algorithm=hashes.SHA256(),
                     length=32,
                     salt=salt,
-                    iterations=600000,
+                    iterations=iterations,
                 )
 
                 password_hash = kdf.derive(password_bytes)
-                return password_hash, salt
+                metadata = {
+                    "algorithm": "pbkdf2_sha256",
+                    "iterations": iterations,
+                    "length": 32,
+                }
+                return password_hash, salt, "pbkdf2_sha256", metadata
 
         finally:
             # Wipe password from memory
@@ -367,31 +388,44 @@ class UserManager:
         password_bytes = password.encode('utf-8')
 
         try:
-            # Hash the password with the stored salt
-            if ARGON2_AVAILABLE:
+            algorithm = (user.password_kdf or 'argon2id').lower()
+            metadata = user.password_kdf_metadata or {}
+
+            if algorithm == 'argon2id':
+                if not ARGON2_AVAILABLE:
+                    logger.error("Argon2 not available to verify stored Argon2id password")
+                    return False
+
+                params = Argon2Params.from_metadata(metadata)
                 attempted_hash = hash_secret_raw(
                     secret=password_bytes,
                     salt=user.password_salt,
-                    time_cost=3,
-                    memory_cost=65536,
-                    parallelism=4,
-                    hash_len=32,
-                    type=Type.ID
+                    time_cost=params.time_cost,
+                    memory_cost=params.memory_cost,
+                    parallelism=params.parallelism,
+                    hash_len=params.hash_length,
+                    type=Type.ID,
+                    version=params.version,
                 )
-            else:
+            elif algorithm == 'pbkdf2_sha256':
                 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
                 from cryptography.hazmat.primitives import hashes
 
+                iterations = int(metadata.get('iterations', 600000))
+                length = int(metadata.get('length', 32))
+
                 kdf = PBKDF2HMAC(
                     algorithm=hashes.SHA256(),
-                    length=32,
+                    length=length,
                     salt=user.password_salt,
-                    iterations=600000,
+                    iterations=iterations,
                 )
                 attempted_hash = kdf.derive(password_bytes)
+            else:
+                logger.error("Unsupported password KDF '%s'", algorithm)
+                return False
 
             # Constant-time comparison
-            import hmac
             return hmac.compare_digest(attempted_hash, user.password_hash)
 
         finally:
@@ -423,10 +457,16 @@ class UserManager:
         self.validate_password(new_password)
 
         # Hash new password
-        new_hash, new_salt = self._hash_password(new_password)
+        new_hash, new_salt, kdf_name, kdf_metadata = self._hash_password(new_password)
 
         # Update in database
-        self.db.update_password(user_id, new_hash, new_salt)
+        self.db.update_password(
+            user_id,
+            new_hash,
+            new_salt,
+            password_kdf=kdf_name,
+            password_kdf_metadata=kdf_metadata,
+        )
 
         logger.info(f"Updated password for user {user_id}")
 
@@ -487,7 +527,13 @@ class UserManager:
         try:
             # Generate new PIN credentials
             pin_salt = self.pin_manager.generate_salt()
-            pin_derived_key = self.pin_manager.derive_key_from_pin(new_pin, pin_salt)
+            pin_kdf_metadata = self.pin_manager.export_kdf_metadata()
+            pin_derived_key = self.pin_manager.derive_key_from_pin(
+                new_pin,
+                pin_salt,
+                algorithm=pin_kdf_metadata.get("algorithm"),
+                metadata=pin_kdf_metadata,
+            )
 
             # Encrypt new master key
             associated_data = user.email_hash + b"master_key"
@@ -509,7 +555,9 @@ class UserManager:
                 user_id,
                 pin_salt,
                 encrypted_master_key,
-                verification_marker
+                verification_marker,
+                kdf_algorithm=pin_kdf_metadata.get("algorithm"),
+                kdf_metadata=pin_kdf_metadata,
             )
 
             logger.info(f"Reset PIN for user {user_id}")
@@ -530,8 +578,13 @@ class UserManager:
         Returns:
             User object or None if not found
         """
-        email_hash = self.pin_manager.hash_email(email)
-        return self.db.get_user_by_email_hash(email_hash)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+        user = self.db.get_user_by_email_lookup_hash(email_lookup_hash)
+        if user:
+            return user
+
+        legacy_hash = self.pin_manager.hash_email_legacy(email)
+        return self.db.get_user_by_email_hash(legacy_hash)
 
     def user_exists(self, email: str) -> bool:
         """
