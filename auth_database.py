@@ -105,6 +105,38 @@ class AuthDatabase:
         # Set restrictive file permissions
         self._set_secure_permissions()
 
+    @staticmethod
+    def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
+        """Coerce SQLite timestamp values into ``datetime`` objects."""
+
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value
+
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value)
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                try:
+                    return datetime.fromtimestamp(float(value))
+                except (TypeError, ValueError):
+                    logger.warning("Unable to parse datetime value: %s", value)
+                    return None
+
+        logger.warning("Unexpected datetime value type: %s", type(value))
+        return None
+
+    @staticmethod
+    def _format_datetime(value: datetime) -> str:
+        """Format datetimes for SQLite storage."""
+
+        return value.strftime("%Y-%m-%d %H:%M:%S.%f")
+
     def _initialize_database(self):
         """Create database schema if it doesn't exist"""
         with self._get_connection() as conn:
@@ -274,11 +306,11 @@ class AuthDatabase:
                     email_hash=row['email_hash'],
                     password_hash=row['password_hash'],
                     password_salt=row['password_salt'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_login=self._parse_datetime(row['last_login']),
                     is_locked=bool(row['is_locked']),
                     failed_attempts=row['failed_attempts'],
-                    lockout_until=datetime.fromisoformat(row['lockout_until']) if row['lockout_until'] else None
+                    lockout_until=self._parse_datetime(row['lockout_until'])
                 )
             return None
 
@@ -295,11 +327,11 @@ class AuthDatabase:
                     email_hash=row['email_hash'],
                     password_hash=row['password_hash'],
                     password_salt=row['password_salt'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_login=self._parse_datetime(row['last_login']),
                     is_locked=bool(row['is_locked']),
                     failed_attempts=row['failed_attempts'],
-                    lockout_until=datetime.fromisoformat(row['lockout_until']) if row['lockout_until'] else None
+                    lockout_until=self._parse_datetime(row['lockout_until'])
                 )
             return None
 
@@ -368,7 +400,7 @@ class AuthDatabase:
                 UPDATE users
                 SET is_locked = 1, lockout_until = ?
                 WHERE user_id = ?
-            """, (lockout_until.isoformat(), user_id))
+            """, (self._format_datetime(lockout_until), user_id))
             conn.commit()
             logger.warning(f"Locked account {user_id} until {lockout_until}")
 
@@ -418,8 +450,8 @@ class AuthDatabase:
                     pin_salt=row['pin_salt'],
                     encrypted_master_key=row['encrypted_master_key'],
                     verification_marker=row['verification_marker'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    last_updated=datetime.fromisoformat(row['last_updated']) if row['last_updated'] else None
+                    created_at=self._parse_datetime(row['created_at']),
+                    last_updated=self._parse_datetime(row['last_updated'])
                 )
             return None
 
@@ -461,7 +493,7 @@ class AuthDatabase:
                 INSERT INTO sessions
                 (session_id, user_id, expires_at, ip_address, user_agent)
                 VALUES (?, ?, ?, ?, ?)
-            """, (session_id, user_id, expires_at.isoformat(), ip_address, user_agent))
+            """, (session_id, user_id, self._format_datetime(expires_at), ip_address, user_agent))
             conn.commit()
 
             logger.info(f"Created session {session_id} for user {user_id}")
@@ -487,9 +519,9 @@ class AuthDatabase:
                 return Session(
                     session_id=row['session_id'],
                     user_id=row['user_id'],
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
-                    expires_at=datetime.fromisoformat(row['expires_at']) if row['expires_at'] else None,
-                    last_activity=datetime.fromisoformat(row['last_activity']) if row['last_activity'] else None,
+                    created_at=self._parse_datetime(row['created_at']),
+                    expires_at=self._parse_datetime(row['expires_at']),
+                    last_activity=self._parse_datetime(row['last_activity']),
                     ip_address=row['ip_address'],
                     user_agent=row['user_agent']
                 )
@@ -606,7 +638,7 @@ class AuthDatabase:
                     attempt_id=row['attempt_id'],
                     user_id=row['user_id'],
                     email_hash=row['email_hash'],
-                    timestamp=datetime.fromisoformat(row['timestamp']) if row['timestamp'] else None,
+                    timestamp=self._parse_datetime(row['timestamp']),
                     success=bool(row['success']),
                     attempt_type=row['attempt_type'],
                     ip_address=row['ip_address'],

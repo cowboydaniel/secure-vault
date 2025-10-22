@@ -2,9 +2,9 @@
 
 This document outlines the remaining development roadmap for the Secure Vault project, focusing on upcoming features and enhancements for our 512-bit Multi-Layer Encryption System.
 
-## 🔴 CRITICAL PRIORITY: Phase 0 - User Authentication & First-Start Protocol (0% Complete)
+## 🔴 CRITICAL PRIORITY: Phase 0 - User Authentication & First-Start Protocol (40% Complete)
 
-**STATUS**: Not Started - This is the next critical feature to implement before any other development.
+**STATUS**: In Progress – Core database and authentication services are implemented, CLI authentication is online, and GUI onboarding is underway.
 
 **OBJECTIVE**: Implement a secure authentication system with first-start account creation and PIN-based login to protect vault access.
 
@@ -64,58 +64,58 @@ Output: 32 bytes (256-bit key)
 ### 0.2 Implementation Tasks
 
 #### Database Schema (users.db)
-- [ ] Create user management database schema
-  - [ ] `users` table: user_id, email_hash, password_hash, created_at, last_login
-  - [ ] `auth_credentials` table: user_id, pin_salt, encrypted_master_key, verification_marker
-  - [ ] `auth_attempts` table: user_id, timestamp, success, ip_address, failure_count
-  - [ ] `sessions` table: session_id, user_id, created_at, expires_at, last_activity
-  - [ ] Indexes for performance (user_id, email_hash, session_id)
-  - [ ] Foreign key constraints and cascading deletes
+- [x] Create user management database schema
+  - [x] `users` table: user_id, email_hash, password_hash, created_at, last_login
+  - [x] `auth_credentials` table: user_id, pin_salt, encrypted_master_key, verification_marker
+  - [x] `auth_attempts` table: user_id, timestamp, success, ip_address, failure_count
+  - [x] `sessions` table: session_id, user_id, created_at, expires_at, last_activity
+  - [x] Indexes for performance (user_id, email_hash, session_id)
+  - [x] Foreign key constraints and cascading deletes
 
 #### Core Authentication Modules
-- [ ] `user_manager.py` - User account management
-  - [ ] User creation with email validation
-  - [ ] Password policy enforcement (min length, complexity)
-  - [ ] PIN policy enforcement (6-8 digits, no repeating/sequential)
+- [x] `user_manager.py` - User account management
+  - [x] User creation with email validation
+  - [x] Password policy enforcement (min length, complexity)
+  - [x] PIN policy enforcement (6-8 digits, no repeating/sequential)
   - [ ] Account recovery workflows
-  - [ ] User data encryption at rest
+  - [x] User data encryption at rest
 
-- [ ] `auth_manager.py` - Authentication logic
-  - [ ] PIN-based login with Argon2id derivation
-  - [ ] Master key decryption and verification
-  - [ ] Session token generation (secure random)
-  - [ ] Session validation and expiration
-  - [ ] Logout and session cleanup
+- [x] `auth_manager.py` - Authentication logic
+  - [x] PIN-based login with Argon2id derivation
+  - [x] Master key decryption and verification
+  - [x] Session token generation (secure random)
+  - [x] Session validation and expiration
+  - [x] Logout and session cleanup
 
-- [ ] `pin_manager.py` - PIN handling
-  - [ ] Argon2id key derivation function wrapper
-  - [ ] PIN validation (format, strength)
-  - [ ] Master key encryption/decryption
-  - [ ] Verification marker handling
-  - [ ] Secure memory wiping for PIN data
+- [x] `pin_manager.py` - PIN handling
+  - [x] Argon2id key derivation function wrapper
+  - [x] PIN validation (format, strength)
+  - [x] Master key encryption/decryption
+  - [x] Verification marker handling
+  - [x] Secure memory wiping for PIN data
 
-- [ ] `rate_limiter.py` - Brute force protection
-  - [ ] Failed attempt tracking per user
-  - [ ] Exponential backoff (1s, 2s, 4s, 8s, ...)
-  - [ ] Account lockout after N failures (default: 5)
-  - [ ] Time-based lockout release (default: 30 minutes)
+- [x] `rate_limiter.py` - Brute force protection
+  - [x] Failed attempt tracking per user
+  - [x] Exponential backoff (1s, 2s, 4s, 8s, ...)
+  - [x] Account lockout after N failures (default: 5)
+  - [x] Time-based lockout release (default: 30 minutes)
   - [ ] Admin override for lockout reset
 
 #### GUI Components (Linux GUI)
-- [ ] `first_start_wizard.py` - Onboarding wizard
-  - [ ] Welcome screen with security information
-  - [ ] Email input with validation
+- [x] `first_start_wizard.py` - Onboarding wizard
+  - [x] Welcome screen with security information
+  - [x] Email input with validation
   - [ ] Password creation with strength meter
-  - [ ] PIN setup with confirmation
+  - [x] PIN setup with confirmation
   - [ ] Account creation summary
-  - [ ] Progress indicator (steps 1-4)
+  - [x] Progress indicator (steps 1-4)
 
-- [ ] `login_dialog.py` - PIN login screen
+- [x] `login_dialog.py` - PIN login screen
   - [ ] Numeric PIN pad (optional, accessibility)
-  - [ ] PIN input field (masked)
+  - [x] PIN input field (masked)
   - [ ] "Forgot PIN?" recovery option
-  - [ ] Error messages for invalid attempts
-  - [ ] Lockout notification
+  - [x] Error messages for invalid attempts
+  - [x] Lockout notification
 
 - [ ] `account_recovery_dialog.py` - Recovery flow
   - [ ] Email + password verification
@@ -124,24 +124,24 @@ Output: 32 bytes (256-bit key)
   - [ ] Recovery confirmation email (future)
 
 #### CLI Components
-- [ ] `cli_auth.py` - CLI authentication wrapper
-  - [ ] First-start account creation flow
-  - [ ] PIN prompt on startup
-  - [ ] Session management for CLI operations
+- [x] `cli_auth.py` - CLI authentication wrapper
+  - [x] First-start account creation flow
+  - [x] PIN prompt on startup
+  - [x] Session management for CLI operations
   - [ ] Auth token storage (secure, temporary)
   - [ ] Logout command
 
 #### Integration Points
-- [ ] Modify `LINUX_GUI/main.py`
-  - [ ] Check if users.db exists on startup
-  - [ ] If not exists → show FirstStartWizard
-  - [ ] If exists → show LoginDialog
-  - [ ] Only show MainWindow after successful authentication
+- [x] Modify `LINUX_GUI/main.py`
+  - [x] Check if users.db exists on startup
+  - [x] If not exists → show FirstStartWizard
+  - [x] If exists → show LoginDialog
+  - [x] Only show MainWindow after successful authentication
   - [ ] Handle session expiration (auto-lock)
 
-- [ ] Modify `main.py` (CLI)
-  - [ ] Wrap all commands with authentication check
-  - [ ] Prompt for PIN before any operation
+- [x] Modify `main.py` (CLI)
+  - [x] Wrap all commands with authentication check
+  - [x] Prompt for PIN before any operation
   - [ ] Session timeout for CLI (configurable)
   - [ ] Store session token in secure temporary file
 

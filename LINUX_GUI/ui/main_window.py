@@ -4,6 +4,7 @@ Main window for the SecureVault application.
 import os
 import sys
 from pathlib import Path
+from typing import Callable, Optional
 
 # Add the project root to the Python path
 project_root = str(Path(__file__).parent.parent.parent)
@@ -20,6 +21,7 @@ from PyQt6.QtCore import Qt, QSize
 from LINUX_GUI.config import styles, settings as app_settings, themes
 from LINUX_GUI.utils.system_tray import SystemTrayManager
 from LINUX_GUI.utils.clipboard_security import ClipboardSecurityManager
+from auth_manager import AuthManager, AuthSession
 from .dialogs import SettingsDialog, AccountDialog, HelpDialog, AboutDialog
 from .widgets import Header, Footer
 from .views import EncryptView, DecryptView, KeyManagerView
@@ -27,12 +29,23 @@ from .views import EncryptView, DecryptView, KeyManagerView
 
 class MainWindow(QMainWindow):
     """Main application window for SecureVault."""
-    
-    def __init__(self):
+
+    def __init__(
+        self,
+        auth_manager: AuthManager,
+        session: Optional[AuthSession] = None,
+        user_email: Optional[str] = None,
+        on_sign_out: Optional[Callable[[], None]] = None,
+    ):
         """Initialize the main window."""
         super().__init__()
         self.setWindowTitle("SecureVault")
         self.setMinimumSize(1000, 700)
+
+        self.auth_manager = auth_manager
+        self._session: Optional[AuthSession] = None
+        self._user_email: Optional[str] = None
+        self._on_sign_out = on_sign_out
 
         # Load settings
         self.settings = app_settings.get_settings()
@@ -60,6 +73,12 @@ class MainWindow(QMainWindow):
 
         # Apply styles
         self.apply_styles()
+
+        # Prepare status bar and authentication context
+        self.statusBar().showMessage("Ready", 2000)
+
+        if session:
+            self.set_authenticated_session(session, user_email)
     
     def setup_ui(self):
         """Initialize the UI components."""
@@ -314,16 +333,42 @@ class MainWindow(QMainWindow):
         dialog.exec()
     
     def sign_out(self):
-        """Handle sign out action."""
-        reply = QMessageBox.question(
-            self,
-            'Sign Out',
-            'Are you sure you want to sign out?',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.footer.set_status("Signed out successfully", 3000)
-            # TODO: Implement sign out logic
-            print("User signed out")
+        """Handle sign out by delegating to the configured callback."""
+
+        if self._on_sign_out:
+            self._on_sign_out()
+        else:
+            QMessageBox.information(
+                self,
+                "Sign Out",
+                "No sign-out handler is connected. Authentication state remains unchanged.",
+            )
+
+    def set_authenticated_session(self, session: AuthSession, user_email: Optional[str]) -> None:
+        """Associate an authenticated session with the main window."""
+
+        if self._session and self._session.session_id != session.session_id:
+            try:
+                self._session.close()
+            except Exception:  # pragma: no cover - defensive cleanup
+                pass
+
+        self._session = session
+        self._user_email = user_email
+
+        display_name = "User"
+        if user_email:
+            display_name = user_email.split('@')[0] or user_email
+
+        self.header.set_user_info(display_name, user_email)
+        self.statusBar().showMessage(f"Authenticated as {user_email or display_name}", 5000)
+
+    def get_authenticated_session(self) -> Optional[AuthSession]:
+        """Return the active authentication session."""
+
+        return self._session
+
+    def get_authenticated_email(self) -> Optional[str]:
+        """Return the email associated with the active session."""
+
+        return self._user_email
