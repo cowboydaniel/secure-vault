@@ -230,12 +230,16 @@ class SecureMemory:
         """Securely zero the memory."""
         if not self._allocated:
             return
-            
+
+        if self._size <= 0 or self._address is None:
+            # Nothing to zero for empty allocations
+            return
+
         # Use a volatile pointer to prevent optimization
         buf = (ctypes.c_byte * self._size).from_address(self._address)
         for i in range(self._size):
             buf[i] = 0
-        
+
         # Ensure writes are not optimized away
         ctypes.memset(self._address, 0, self._size)
     

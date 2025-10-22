@@ -159,6 +159,13 @@ class EntropyAccumulator:
             # Update the key using SHA-512
             with self.key.lock():
                 hasher = hashlib.sha512()
+                key_material = bytearray(self.key.read())
+                hasher.update(key_material)
+                hasher.update(combined)
+                new_key = bytearray(hasher.digest())
+                self.key.write(new_key)
+                secure_wipe(key_material)
+                secure_wipe(new_key)
                 key_material = self.key.read()
                 hasher.update(key_material)
                 hasher.update(combined)
@@ -198,6 +205,11 @@ class EntropyAccumulator:
                 # Generate a block of random data
                 with self.key.lock():
                     hasher = hashlib.sha512()
+                    key_material = bytearray(self.key.read())
+                    counter_bytes = self.counter.to_bytes(8, 'big')
+                    hasher.update(key_material)
+                    hasher.update(counter_bytes)
+                    block = bytearray(hasher.digest())
                     key_material = self.key.read()
                     hasher.update(key_material)
                     hasher.update(self.counter.to_bytes(8, 'big'))
@@ -207,6 +219,10 @@ class EntropyAccumulator:
                     hasher = hashlib.sha512()
                     hasher.update(key_material)
                     hasher.update(block)
+                    next_key = bytearray(hasher.digest())
+                    self.key.write(next_key)
+                    secure_wipe(key_material)
+                    secure_wipe(next_key)
                     self.key.write(hasher.digest())
                     secure_wipe(bytearray(key_material))
 
@@ -214,8 +230,9 @@ class EntropyAccumulator:
 
                 # Add as much as we need from this block
                 take = min(remaining, len(block))
-                result.extend(block[:take])
+                result.extend(memoryview(block)[:take])
                 remaining -= take
+                secure_wipe(block)
                 secure_wipe(bytearray(block))
 
             return bytes(result[:num_bytes])
