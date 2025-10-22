@@ -301,49 +301,54 @@ def derive_multiple_keys(master_key: bytes, count: int, key_length: int = KEY_SI
 # Memory Security Functions
 # =====================================================
 
-def secure_wipe(data: Union[bytearray, memoryview, bytes]) -> None:
+def secure_wipe(data: Union[bytearray, memoryview]) -> None:
     """
     Securely wipe sensitive data from memory.
-    
+
     Args:
-        data: The data to wipe (bytearray, memoryview, or bytes)
+        data: The data to wipe (must be mutable)
+
+    Raises:
+        TypeError: If immutable data (e.g., bytes) is provided
     """
-    if isinstance(data, (bytearray, memoryview)):
-        # For mutable types, we can zero them directly
-        secure_zero_memory(bytearray(data))
-    elif isinstance(data, bytes):
-        # For immutable bytes, we can't modify them, but we can try to clean up copies
-        # This is a best-effort approach as we can't guarantee all copies are wiped
-        try:
-            # Try to get the underlying buffer if possible
-            buf = memoryview(data).cast('B')
-            secure_zero_memory(bytearray(buf))
-        except (TypeError, ValueError):
-            # If we can't get a writable buffer, just let it be garbage collected
-            pass
+    if isinstance(data, memoryview):
+        if data.readonly:
+            raise TypeError("secure_wipe requires a writable memoryview")
+        secure_zero_memory(data)
+    elif isinstance(data, bytearray):
+        secure_zero_memory(data)
+    else:
+        raise TypeError("secure_wipe requires a mutable buffer (bytearray or memoryview)")
 
 
-def secure_zero_memory(data: bytearray):
+def secure_zero_memory(data: Union[bytearray, memoryview]):
     """
     Securely zero memory to prevent data recovery.
-    
+
     Args:
-        data: Mutable byte array to zero
+        data: Mutable byte array or memoryview to zero
     """
-    if not isinstance(data, bytearray):
-        raise TypeError("secure_zero_memory requires a mutable bytearray")
-    
-    # Use ctypes to zero memory in a way that won't be optimized away
-    if len(data) > 0:
-        ctypes.memset((ctypes.c_byte * len(data)).from_buffer(data), 0, len(data))
-    
-    # Double check with a different method
-    for i in range(len(data)):
-        data[i] = 0
-    
-    # Final zero pass
-    for i in range(len(data)):
-        data[i] = 0x00
+    if isinstance(data, memoryview):
+        if data.readonly:
+            raise TypeError("secure_zero_memory requires a writable memoryview")
+        view = data.cast('B') if data.format != 'B' else data
+    elif isinstance(data, bytearray):
+        view = data
+    else:
+        raise TypeError("secure_zero_memory requires a bytearray or writable memoryview")
+
+    if len(view) == 0:
+        return
+
+    ptr = ctypes.addressof(ctypes.c_char.from_buffer(view))
+    ctypes.memset(ptr, 0, len(view))
+
+    # Additional passes to frustrate compiler optimizations
+    for i in range(len(view)):
+        view[i] = 0
+
+    for i in range(len(view)):
+        view[i] = 0x00
 
 class SecureBytes:
     """

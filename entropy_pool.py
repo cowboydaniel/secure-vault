@@ -16,7 +16,7 @@ from enum import Enum, auto
 from collections import deque
 
 # Import secure memory for handling sensitive data
-from secure_memory import SecureBytes, secure_alloc, secure_free
+from secure_memory import SecureBytes, secure_alloc, secure_free, secure_wipe
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,10 @@ class EntropyPool:
         """Add entropy to the pool"""
         with self.data.lock():
             # Append the new data
-            self.data.value += data
-            self.size += len(data)
+            self.data.extend(data)
+            self.size = len(self.data)
             self.last_updated = time.time()
-            
+
             # Update state based on size
             if self.size >= MIN_POOL_SIZE:
                 self.state = PoolState.READY
@@ -62,14 +62,13 @@ class EntropyPool:
         self.state = PoolState.DRAINING
         try:
             with self.data.lock():
-                if len(self.data.value) < num_bytes:
+                if len(self.data) < num_bytes:
                     return None
-                    
+
                 # Extract the requested bytes
-                result = bytes(self.data.value[:num_bytes])
-                self.data.value = self.data.value[num_bytes:]
-                self.size -= num_bytes
-                
+                result = self.data.consume(num_bytes)
+                self.size = len(self.data)
+
                 # Update state
                 if self.size == 0:
                     self.state = PoolState.EMPTY
@@ -152,18 +151,22 @@ class EntropyAccumulator:
             for pool_num in ready_pools:
                 pool = self.pools[pool_num]
                 with pool.data.lock():
-                    combined.extend(pool.data.value)
-                    pool.data.value = b""
+                    combined.extend(pool.data.read())
+                    pool.data.clear()
                     pool.size = 0
                     pool.state = PoolState.EMPTY
-            
+
             # Update the key using SHA-512
             with self.key.lock():
                 hasher = hashlib.sha512()
-                hasher.update(self.key.value)
+                key_material = self.key.read()
+                hasher.update(key_material)
                 hasher.update(combined)
-                self.key.value = hasher.digest()
-            
+                new_key = hasher.digest()
+                self.key.write(new_key)
+                secure_wipe(bytearray(key_material))
+            secure_wipe(combined)
+
             self.counter += 1
             self.last_reseed = current_time
             
@@ -195,23 +198,26 @@ class EntropyAccumulator:
                 # Generate a block of random data
                 with self.key.lock():
                     hasher = hashlib.sha512()
-                    hasher.update(self.key.value)
+                    key_material = self.key.read()
+                    hasher.update(key_material)
                     hasher.update(self.counter.to_bytes(8, 'big'))
                     block = hasher.digest()
-                    
+
                     # Update the key for the next iteration
                     hasher = hashlib.sha512()
-                    hasher.update(self.key.value)
+                    hasher.update(key_material)
                     hasher.update(block)
-                    self.key.value = hasher.digest()
-                    
+                    self.key.write(hasher.digest())
+                    secure_wipe(bytearray(key_material))
+
                     self.counter += 1
-                
+
                 # Add as much as we need from this block
                 take = min(remaining, len(block))
                 result.extend(block[:take])
                 remaining -= take
-            
+                secure_wipe(bytearray(block))
+
             return bytes(result[:num_bytes])
     
     def start(self) -> None:

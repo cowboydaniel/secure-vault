@@ -14,6 +14,7 @@ import sys
 import mmap
 import platform
 import warnings
+import threading
 from typing import Optional, Union, TypeVar, Type, Any, Tuple
 import weakref
 
@@ -52,11 +53,11 @@ try:
     MCL_FUTURE = 2
     
     # Windows-specific constants
-    if kernel32 is not None:
-        MEM_COMMIT = 0x1000
-        MEM_RESERVE = 0x2000
-        PAGE_READWRITE = 0x04
-        MEM_RELEASE = 0x8000
+    MEM_COMMIT = 0x1000
+    MEM_RESERVE = 0x2000
+    PAGE_READWRITE = 0x04
+    PAGE_READONLY = 0x02
+    MEM_RELEASE = 0x8000
         
 except ImportError as e:
     warnings.warn(f"Could not import required modules for secure memory: {e}")
@@ -96,6 +97,7 @@ class SecureMemory:
         self._locked = False
         self._address = None
         self._allocated = False
+        self._mmap_obj: Optional[mmap.mmap] = None
         
         try:
             self._allocate()
@@ -109,74 +111,121 @@ class SecureMemory:
     
     def _allocate(self) -> None:
         """Allocate memory using the appropriate method for the platform."""
+        if self._size <= 0:
+            # Nothing to allocate but keep the instance usable
+            self._allocated = True
+            self._address = None
+            return
+
         if kernel32 is not None:
             # Windows implementation
             self._address = kernel32.VirtualAlloc(
-                0, self._size, 
-                kernel32.MEM_COMMIT | kernel32.MEM_RESERVE, 
-                kernel32.PAGE_READWRITE
+                0,
+                self._size,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE,
             )
             if not self._address:
                 raise MemoryLockError("Failed to allocate secure memory")
-        else:
-            # POSIX implementation
-            self._address = libc.mmap(
-                0, self._size, 
+        elif libc is not None:
+            # POSIX implementation using libc
+            libc.mmap.restype = ctypes.c_void_p
+            libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t,
+                                  ctypes.c_int, ctypes.c_int,
+                                  ctypes.c_int, ctypes.c_size_t]
+            result = libc.mmap(
+                0,
+                self._size,
                 PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, 
-                -1, 0
+                MAP_PRIVATE | MAP_ANONYMOUS,
+                -1,
+                0,
             )
-            if self._address == -1:
+            if not result or result == ctypes.c_void_p(-1).value:
                 raise MemoryLockError("Failed to allocate secure memory")
-        
+            self._address = result
+        else:
+            # Fallback to Python's mmap when libc isn't available
+            try:
+                self._mmap_obj = mmap.mmap(-1, self._size)
+                self._address = ctypes.addressof(
+                    ctypes.c_char.from_buffer(self._mmap_obj)
+                )
+                warnings.warn(
+                    "libc not available; using mmap fallback without mlock guarantees",
+                    RuntimeWarning,
+                )
+            except Exception as exc:
+                raise MemoryLockError(f"Failed to allocate secure memory: {exc}")
+
         self._allocated = True
-    
+
     def lock(self) -> None:
         """Lock memory to prevent swapping."""
         if self._locked or not self._allocated:
             return
-            
+
+        if self._size <= 0 or self._address is None:
+            self._locked = True
+            return
+
         if kernel32 is not None:
             # Windows implementation
             old_protect = ctypes.c_ulong()
             if not kernel32.VirtualProtect(
-                self._address, self._size, 
-                kernel32.PAGE_READONLY, 
+                self._address, self._size,
+                PAGE_READONLY,
                 ctypes.byref(old_protect)
             ):
                 raise MemoryLockError("Failed to protect memory")
-        else:
+        elif libc is not None:
             # POSIX implementation
             if libc.mlock(self._address, self._size) != 0:
-                raise MemoryLockError("Failed to lock memory")
-            
-            # Try to prevent core dumps
-            try:
-                resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-            except (ValueError, resource.error):
-                pass  # Not all systems support this
-        
+                warnings.warn(
+                    "mlock failed; continuing without locked pages",
+                    RuntimeWarning,
+                )
+            else:
+                # Try to prevent core dumps
+                try:
+                    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+                except (ValueError, resource.error):
+                    pass  # Not all systems support this
+        else:
+            # Fallback path without real locking
+            warnings.warn(
+                "Secure memory fallback in use; memory pages are not locked",
+                RuntimeWarning,
+            )
+
         self._locked = True
-    
+
     def unlock(self) -> None:
         """Unlock memory (not recommended for sensitive data)."""
         if not self._locked or not self._allocated:
             return
-            
+
+        if self._size <= 0 or self._address is None:
+            self._locked = False
+            return
+
         if kernel32 is not None:
             # Windows implementation
             old_protect = ctypes.c_ulong()
             kernel32.VirtualProtect(
                 self._address, self._size,
-                kernel32.PAGE_READWRITE,
+                PAGE_READWRITE,
                 ctypes.byref(old_protect)
             )
-        else:
+        elif libc is not None:
             # POSIX implementation
             libc.munlock(self._address, self._size)
-        
+        else:
+            # Nothing to do for fallback allocator
+            return
+
         self._locked = False
-    
+
     def zero(self) -> None:
         """Securely zero the memory."""
         if not self._allocated:
@@ -199,13 +248,18 @@ class SecureMemory:
             self.zero()
             self.unlock()
             
-            if kernel32 is not None:
+            if self._address is None:
+                pass
+            elif kernel32 is not None:
                 # Windows implementation
-                kernel32.VirtualFree(self._address, 0, kernel32.MEM_RELEASE)
-            else:
+                kernel32.VirtualFree(self._address, 0, MEM_RELEASE)
+            elif libc is not None:
                 # POSIX implementation
                 libc.munmap(self._address, self._size)
-                
+            elif self._mmap_obj is not None:
+                self._mmap_obj.close()
+                self._mmap_obj = None
+
         except Exception as e:
             warnings.warn(f"Error releasing secure memory: {e}")
         finally:
@@ -265,7 +319,7 @@ def secure_free(mem):
         mem._release()
 
 
-def secure_wipe(data: Union[bytearray, memoryview, bytes]) -> None:
+def secure_wipe(data: Union[bytearray, memoryview]) -> None:
     """Re-export secure_wipe for backwards compatibility."""
     _crypto_secure_wipe(data)
 
@@ -315,43 +369,151 @@ class SecureString:
             self._memory = None
 
 # Secure bytes implementation
+class _SecureBytesLock:
+    """Context manager for thread-safe access to SecureBytes."""
+
+    def __init__(self, owner: "SecureBytes") -> None:
+        self._owner = owner
+
+    def __enter__(self) -> "SecureBytes":
+        self._owner._lock.acquire()
+        return self._owner
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._owner._lock.release()
+        return False
+
+
 class SecureBytes:
-    """
-    Secure bytes that securely handles sensitive binary data.
-    """
-    
-    def __init__(self, data: Union[bytes, bytearray, memoryview]):
-        """
-        Initialize with sensitive binary data.
-        
-        Args:
-            data: Binary data to store securely
-        """
-        if not isinstance(data, (bytes, bytearray, memoryview)):
-            raise TypeError("Data must be bytes, bytearray, or memoryview")
-        
-        self._length = len(data)
-        self._memory = secure_alloc(self._length)
-        
-        # Copy data into secure memory
-        buf = (ctypes.c_byte * self._length).from_address(self._memory.address)
-        for i, b in enumerate(data):
-            buf[i] = b
-    
+    """Thread-safe, wipe-aware container for sensitive byte sequences."""
+
+    def __init__(self, data: Union[int, bytes, bytearray, memoryview]):
+        if isinstance(data, int):
+            if data < 0:
+                raise ValueError("Length must be non-negative")
+            initial = bytearray(data)
+        elif isinstance(data, (bytes, bytearray, memoryview)):
+            initial = bytearray(data)
+        else:
+            raise TypeError("Data must be an int or bytes-like object")
+
+        self._lock = threading.RLock()
+        self._memory: Optional[SecureMemory] = None
+        self._length = 0
+        self._replace_with_unlocked(initial)
+
+    def _replace_with_unlocked(self, buffer: bytearray) -> None:
+        """Replace the stored value with the provided buffer (expects lock held)."""
+        new_len = len(buffer)
+        new_memory = secure_alloc(new_len) if new_len > 0 else None
+
+        if new_memory is not None and new_len > 0:
+            dest = (ctypes.c_ubyte * new_len).from_address(new_memory.address)
+            dest[:new_len] = buffer
+
+        old_memory = self._memory
+        self._memory = new_memory
+        self._length = new_len
+
+        if old_memory is not None:
+            secure_free(old_memory)
+
+        if buffer:
+            _crypto_secure_wipe(buffer)
+
+    def lock(self) -> _SecureBytesLock:
+        """Return a context manager locking this instance."""
+        return _SecureBytesLock(self)
+
+    def write(self, data: Union[bytes, bytearray, memoryview]) -> None:
+        """Overwrite the stored value with new data."""
+        buffer = bytearray(data)
+        with self._lock:
+            self._replace_with_unlocked(buffer)
+
+    def extend(self, data: Union[bytes, bytearray, memoryview]) -> None:
+        """Append data to the end of the buffer."""
+        addition = bytearray(data)
+        with self._lock:
+            if self._length == 0:
+                self._replace_with_unlocked(addition)
+                return
+
+            existing = bytearray(self._read_unlocked())
+            existing.extend(addition)
+            self._replace_with_unlocked(existing)
+            if addition:
+                _crypto_secure_wipe(addition)
+
+    def clear(self) -> None:
+        """Remove all data and release memory."""
+        with self._lock:
+            self._replace_with_unlocked(bytearray())
+
+    def _read_unlocked(self, num_bytes: Optional[int] = None) -> bytes:
+        if self._length == 0 or self._memory is None:
+            return b""
+
+        length = self._length if num_bytes is None else min(num_bytes, self._length)
+        if length <= 0:
+            return b""
+        return ctypes.string_at(self._memory.address, length)
+
+    def read(self, num_bytes: Optional[int] = None) -> bytes:
+        """Return up to num_bytes of the stored value as bytes."""
+        with self._lock:
+            return self._read_unlocked(num_bytes)
+
+    def consume(self, num_bytes: int) -> bytes:
+        """Remove and return the first num_bytes of data."""
+        if num_bytes <= 0:
+            return b""
+
+        with self._lock:
+            data = self._read_unlocked()
+            if not data:
+                return b""
+
+            take = min(num_bytes, len(data))
+            extracted = data[:take]
+            remaining = bytearray(data[take:])
+            self._replace_with_unlocked(remaining)
+
+            if data:
+                temp = bytearray(data)
+                _crypto_secure_wipe(temp)
+
+            return extracted
+
+    def zero(self) -> None:
+        """Zero and release the stored data."""
+        with self._lock:
+            if self._memory is not None:
+                self._memory.zero()
+                secure_free(self._memory)
+                self._memory = None
+            self._length = 0
+
     def __bytes__(self) -> bytes:
-        """Get bytes representation (use with caution)."""
-        buf = (ctypes.c_byte * self._length).from_address(self._memory.address)
-        return bytes(buf)
-    
+        return self.read()
+
     def __len__(self) -> int:
-        """Get the length of the data."""
         return self._length
-    
+
+    @property
+    def value(self) -> bytes:
+        """Expose the current value as bytes."""
+        return self.read()
+
+    @value.setter
+    def value(self, new_value: Union[bytes, bytearray, memoryview]) -> None:
+        self.write(new_value)
+
     def __del__(self):
-        """Securely erase the data when done."""
-        if hasattr(self, '_memory'):
-            self._memory.zero()
-            self._memory = None
+        try:
+            self.zero()
+        except Exception:
+            pass
 
 # Context manager for secure memory
 class secure_memory_section:

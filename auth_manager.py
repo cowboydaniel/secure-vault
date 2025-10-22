@@ -15,7 +15,7 @@ This module provides the high-level authentication API used by the GUI and CLI.
 import os
 import uuid
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
@@ -69,7 +69,7 @@ class AuthSession:
         self,
         session_id: str,
         user_id: int,
-        master_key: bytes,
+        master_key: Union[bytes, bytearray],
         created_at: datetime,
         expires_at: datetime
     ):
@@ -85,7 +85,7 @@ class AuthSession:
         """
         self.session_id = session_id
         self.user_id = user_id
-        self._master_key = master_key  # SENSITIVE: Stored in memory
+        self._master_key = bytearray(master_key)  # SENSITIVE: Stored in memory
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
@@ -104,7 +104,7 @@ class AuthSession:
             raise SessionExpiredError("Session has expired")
 
         self.last_activity = datetime.now()
-        return self._master_key
+        return bytes(self._master_key)
 
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -357,7 +357,7 @@ class AuthManager:
             # Wipe PIN from memory
             if 'pin_derived_key' in locals():
                 secure_wipe(pin_derived_key)
-            secure_wipe(pin.encode('utf-8'))
+            secure_wipe(bytearray(pin, 'utf-8'))
 
     def authenticate_with_password(
         self,
@@ -446,7 +446,7 @@ class AuthManager:
     def _create_session(
         self,
         user_id: int,
-        master_key: bytes,
+        master_key: Union[bytes, bytearray],
         ip_address: Optional[str] = None
     ) -> AuthSession:
         """

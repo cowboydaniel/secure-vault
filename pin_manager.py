@@ -17,7 +17,7 @@ import os
 import re
 import logging
 import hashlib
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, Union
 from dataclasses import dataclass
 
 # Argon2 for key derivation
@@ -219,14 +219,14 @@ class PINManager:
             - Salt ensures different keys for same PIN across users
             - PIN is wiped from memory after derivation
         """
-        pin_bytes = pin.encode('utf-8')
+        pin_bytes = bytearray(pin, 'utf-8')
 
         try:
             alg = (algorithm or ("argon2id" if ARGON2_AVAILABLE else "pbkdf2_sha256")).lower()
             if alg == "argon2id" and ARGON2_AVAILABLE:
                 params = Argon2Params.from_metadata(metadata) if metadata else self.params
                 derived_key = hash_secret_raw(
-                    secret=pin_bytes,
+                    secret=bytes(pin_bytes),
                     salt=salt,
                     time_cost=params.time_cost,
                     memory_cost=params.memory_cost,
@@ -246,9 +246,9 @@ class PINManager:
                     salt=salt,
                     iterations=iterations,
                 )
-                derived_key = kdf.derive(pin_bytes)
+                derived_key = kdf.derive(bytes(pin_bytes))
 
-            return derived_key
+            return bytearray(derived_key)
 
         finally:
             # Wipe PIN from memory
@@ -260,8 +260,8 @@ class PINManager:
 
     def encrypt_master_key(
         self,
-        master_key: bytes,
-        pin_derived_key: bytes,
+        master_key: Union[bytes, bytearray],
+        pin_derived_key: Union[bytes, bytearray],
         associated_data: bytes
     ) -> bytes:
         """
@@ -296,12 +296,12 @@ class PINManager:
         nonce = os.urandom(12)  # 96-bit nonce (GCM standard)
 
         # Create AES-GCM cipher
-        aesgcm = AESGCM(pin_derived_key)
+        aesgcm = AESGCM(bytes(pin_derived_key))
 
         # Encrypt with authenticated encryption
         ciphertext = aesgcm.encrypt(
             nonce=nonce,
-            data=master_key,
+            data=bytes(master_key),
             associated_data=associated_data
         )
 
@@ -312,7 +312,7 @@ class PINManager:
     def decrypt_master_key(
         self,
         encrypted_data: bytes,
-        pin_derived_key: bytes,
+        pin_derived_key: Union[bytes, bytearray],
         associated_data: bytes
     ) -> bytes:
         """
@@ -344,7 +344,7 @@ class PINManager:
         ciphertext = encrypted_data[12:]  # Includes authentication tag
 
         # Create AES-GCM cipher
-        aesgcm = AESGCM(pin_derived_key)
+        aesgcm = AESGCM(bytes(pin_derived_key))
 
         # Decrypt and verify
         # If PIN is wrong, this will raise InvalidTag exception
@@ -361,7 +361,7 @@ class PINManager:
 
     def create_verification_marker(
         self,
-        master_key: bytes,
+        master_key: Union[bytes, bytearray],
         associated_data: bytes
     ) -> bytes:
         """
@@ -385,7 +385,7 @@ class PINManager:
         nonce = os.urandom(12)
 
         # Encrypt with master key
-        aesgcm = AESGCM(master_key)
+        aesgcm = AESGCM(bytes(master_key))
         ciphertext = aesgcm.encrypt(
             nonce=nonce,
             data=verification_plaintext,
@@ -396,7 +396,7 @@ class PINManager:
 
     def verify_master_key(
         self,
-        master_key: bytes,
+        master_key: Union[bytes, bytearray],
         encrypted_verification_marker: bytes,
         associated_data: bytes
     ) -> bool:
@@ -417,7 +417,7 @@ class PINManager:
             ciphertext = encrypted_verification_marker[12:]
 
             # Decrypt verification marker
-            aesgcm = AESGCM(master_key)
+            aesgcm = AESGCM(bytes(master_key))
             plaintext = aesgcm.decrypt(
                 nonce=nonce,
                 data=ciphertext,
@@ -430,14 +430,14 @@ class PINManager:
         except Exception:
             return False
 
-    def generate_master_key(self) -> bytes:
+    def generate_master_key(self) -> bytearray:
         """
         Generate new master vault encryption key.
 
         Returns:
             32-byte (256-bit) cryptographically secure random key
         """
-        return os.urandom(32)
+        return bytearray(os.urandom(32))
 
     def hash_email_for_lookup(self, email: str) -> bytes:
         """Return a peppered hash for consistent email lookups."""
