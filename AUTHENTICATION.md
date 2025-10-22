@@ -248,9 +248,29 @@ print("PIN reset successfully!")
 
 ### Account Recovery Warnings
 
-⚠️ **Important**: Resetting your PIN generates a new master key. You will **lose access** to all files encrypted with the old PIN/master key. This is a security trade-off to avoid storing the master key in a password-recoverable form.
+⚠️ **CRITICAL LIMITATION**: Resetting your PIN generates a new master key. You will **PERMANENTLY LOSE ACCESS** to all files encrypted with the old PIN/master key.
 
-**Recommendation**: Always backup your vault data before resetting your PIN.
+**Why this happens:**
+
+The current MVP design uses PIN-only master key encryption for maximum security:
+
+```
+PIN → Argon2id → Derived Key → Encrypts → Master Key → Encrypts → Your Files
+```
+
+Without the old PIN, the old master key **cannot be decrypted**. When you reset your PIN:
+
+1. Old PIN lost → Can't decrypt old master key → Old files inaccessible
+2. New PIN created → New master key generated → Only new files can be encrypted
+
+**This is a security architecture choice, not a bug.** It prevents an attacker who obtains your password (but not your PIN) from accessing your files.
+
+**Before resetting your PIN:**
+1. **Decrypt all encrypted files** with your old PIN if possible
+2. **Backup important data**
+3. Accept that old encrypted files will become inaccessible
+
+**Future Enhancement:** Password-based master key recovery is planned for a future release to avoid this data loss, with a configurable security/convenience trade-off.
 
 ### Session Security
 
