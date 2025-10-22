@@ -6,6 +6,10 @@ import unittest
 
 from auth_database import AuthDatabase
 from auth_manager import AuthManager, InvalidCredentialsError
+from instance_guard import TamperDetectedError
+from pin_manager import PINManager, PINValidationError
+from rate_limiter import AccountLockedError, RateLimitError
+from user_manager import UserManager, UserExistsError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError
 from user_manager import UserManager
@@ -16,12 +20,21 @@ class AuthenticationTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.temp_dir.name, "state")
+        self._prev_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        os.environ["SECURE_VAULT_STATE_DIR"] = self.state_dir
+        self.db_path = os.path.join(self.temp_dir.name, "users.db")
+        self.db = AuthDatabase(db_path=self.db_path)
         db_path = os.path.join(self.temp_dir.name, "users.db")
         self.db = AuthDatabase(db_path=db_path)
         self.auth_manager = AuthManager(db=self.db)
         self.user_manager: UserManager = self.auth_manager.user_manager
 
     def tearDown(self) -> None:  # pragma: no cover - cleanup
+        if self._prev_state_dir is not None:
+            os.environ["SECURE_VAULT_STATE_DIR"] = self._prev_state_dir
+        else:
+            os.environ.pop("SECURE_VAULT_STATE_DIR", None)
         self.temp_dir.cleanup()
 
     def test_pin_manager_round_trip(self) -> None:
@@ -103,6 +116,57 @@ class AuthenticationTestCase(unittest.TestCase):
 
         with self.assertRaises(AccountLockedError):
             self.auth_manager.authenticate_with_pin(email=email, pin="000000")
+
+    def test_prevents_multiple_accounts(self) -> None:
+        """Only a single owner account may be provisioned."""
+
+        email = "owner@example.com"
+        password = "Secur3OwnerPass!"
+        pin = "746291"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+
+        with self.assertRaises(UserExistsError):
+            self.user_manager.create_user(
+                email="second@example.com",
+                password="AnotherStrongPass1!",
+                pin="839120",
+            )
+
+    def test_global_rate_limit_blocks_unknown_email(self) -> None:
+        """Repeated failures for the same email trigger a cooldown."""
+
+        limiter = self.auth_manager.rate_limiter
+        limiter.config.max_attempts = 50
+        limiter.config.max_global_attempts = 10
+        limiter.config.global_window_seconds = 600
+        limiter.config.max_email_attempts = 2
+        limiter.config.email_window_seconds = 3600
+
+        target_email = "nobody@example.com"
+
+        for _ in range(limiter.config.max_email_attempts):
+            with self.assertRaises(InvalidCredentialsError):
+                self.auth_manager.authenticate_with_pin(email=target_email, pin="000000")
+
+        with self.assertRaises(RateLimitError):
+            self.auth_manager.authenticate_with_pin(email=target_email, pin="000000")
+
+    def test_lockdown_when_database_missing(self) -> None:
+        """Deleting the authentication database triggers tamper lockdown."""
+
+        self.user_manager.create_user(
+            email="alice@example.com",
+            password="Sup3rSecurePass!",
+            pin="839201",
+        )
+
+        self.db.close()
+        os.remove(self.db_path)
+
+        with self.assertRaises(TamperDetectedError):
+            AuthDatabase(db_path=self.db_path)
+
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience

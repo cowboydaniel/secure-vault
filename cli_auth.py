@@ -12,6 +12,7 @@ from auth_manager import (
     AuthManager,
     AuthSession,
     InvalidCredentialsError,
+    SystemLockdownError,
 )
 from rate_limiter import RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
@@ -36,6 +37,10 @@ class CLIAuthenticator:
         getpass_func: Callable[[str], str] = getpass,
         audit_logger: Optional[AuditLogger] = None,
     ) -> None:
+        try:
+            self.auth_manager = auth_manager or AuthManager()
+        except SystemLockdownError as exc:
+            raise AuthenticationFlowError(str(exc)) from exc
         self.auth_manager = auth_manager or AuthManager()
         self.user_manager: UserManager = self.auth_manager.user_manager
         self._input = input_func

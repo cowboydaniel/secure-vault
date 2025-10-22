@@ -24,6 +24,7 @@ from user_manager import UserManager
 from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
+from instance_guard import TamperDetectedError
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ class InvalidCredentialsError(AuthenticationError):
 
 class SessionExpiredError(AuthenticationError):
     """Raised when session has expired"""
+    pass
+
+
+class SystemLockdownError(AuthenticationError):
+    """Raised when the authentication subsystem has been locked down."""
     pass
 
 
@@ -140,7 +146,13 @@ class AuthManager:
             db: Authentication database (creates new if None)
             config: Authentication configuration (uses defaults if None)
         """
-        self.db = db or AuthDatabase()
+        if db is not None:
+            self.db = db
+        else:
+            try:
+                self.db = AuthDatabase()
+            except TamperDetectedError as exc:
+                raise SystemLockdownError(str(exc)) from exc
         self.config = config or AuthConfig()
 
         # Initialize sub-managers
@@ -187,6 +199,21 @@ class AuthManager:
             AccountLockedError: Account is locked due to failed attempts
             RateLimitError: Too many attempts, must wait
         """
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+
+        try:
+            self.rate_limiter.check_global_rate_limit(email_lookup_hash)
+        except RateLimitError as exc:
+            self.db.record_auth_attempt(
+                user_id=None,
+                email_hash=email_lookup_hash,
+                success=False,
+                attempt_type='pin',
+                ip_address=ip_address,
+                failure_reason='device_rate_limited'
+            )
+            raise
+
         # Get user by email
         user = self.user_manager.get_user_by_email(email)
         if not user:
@@ -195,7 +222,7 @@ class AuthManager:
             email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
-                email_hash=email_hash,
+                email_hash=email_lookup_hash,
                 success=False,
                 attempt_type='pin',
                 ip_address=ip_address,

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from auth_secrets import get_session_pepper
+from instance_guard import InstanceGuard, TamperDetectedError
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class AuthDatabase:
     - auth_attempts: Authentication attempt history
     """
 
+    INSTANCE_SECRET_KEY = "instance_secret"
+
     def __init__(self, db_path: Optional[str] = None):
         """
         Initialize authentication database.
@@ -109,6 +112,8 @@ class AuthDatabase:
         self.db_path = db_path
         self.connection: Optional[sqlite3.Connection] = None
 
+        self._instance_guard = InstanceGuard(self.db_path)
+
         # Create database and tables if they don't exist
         self._initialize_database()
 
@@ -117,6 +122,39 @@ class AuthDatabase:
 
         # Set restrictive file permissions
         self._set_secure_permissions()
+        self._instance_guard.verify_environment(self)
+
+    @staticmethod
+    def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
+        """Coerce SQLite timestamp values into ``datetime`` objects."""
+
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value
+
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value)
+
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                try:
+                    return datetime.fromtimestamp(float(value))
+                except (TypeError, ValueError):
+                    logger.warning("Unable to parse datetime value: %s", value)
+                    return None
+
+        logger.warning("Unexpected datetime value type: %s", type(value))
+        return None
+
+    @staticmethod
+    def _format_datetime(value: datetime) -> str:
+        """Format datetimes for SQLite storage."""
+
+        return value.strftime("%Y-%m-%d %H:%M:%S.%f")
 
     @staticmethod
     def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
@@ -227,6 +265,15 @@ class AuthDatabase:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Create indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email_hash ON users(email_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email_lookup_hash)")
@@ -236,6 +283,8 @@ class AuthDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_user_id ON auth_attempts(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_timestamp ON auth_attempts(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_hash ON auth_attempts(email_hash)")
+
+            self._bind_instance_secret(cursor)
 
             conn.commit()
             logger.info("Authentication database initialized successfully")
@@ -315,6 +364,17 @@ class AuthDatabase:
                             "UPDATE sessions SET session_id = ? WHERE session_id = ?",
                             (hashed, session_id),
                         )
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='system_state'")
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE TABLE system_state (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
 
             conn.commit()
 
@@ -888,3 +948,116 @@ class AuthDatabase:
             cursor.execute("SELECT COUNT(*) as count FROM users")
             result = cursor.fetchone()
             return result['count']
+
+    def get_instance_secret(self) -> Optional[str]:
+        """Return the stored instance binding hash, if available."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value FROM system_state WHERE key = ?",
+                (self.INSTANCE_SECRET_KEY,)
+            )
+            row = cursor.fetchone()
+            return row['value'] if row else None
+
+    def set_instance_secret(self, secret_hash: str) -> None:
+        """Persist or update the stored instance binding hash."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO system_state (key, value, created_at, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (self.INSTANCE_SECRET_KEY, secret_hash)
+            )
+            conn.commit()
+
+    @staticmethod
+    def hash_instance_secret(secret: bytes) -> str:
+        """Derive a fixed digest for the instance binding secret."""
+        digest = hashlib.blake2b(secret, digest_size=32)
+        return digest.hexdigest()
+
+    def get_failed_attempts_since(
+        self,
+        since: datetime,
+        email_hash: Optional[bytes] = None,
+    ) -> List[AuthAttempt]:
+        """Fetch failed authentication attempts within the provided window."""
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            query = [
+                "SELECT * FROM auth_attempts WHERE success = 0 AND timestamp >= ?"
+            ]
+            params: List[Any] = [self._format_datetime(since)]
+
+            if email_hash is not None:
+                query.append("AND email_hash = ?")
+                params.append(email_hash)
+
+            query.append("ORDER BY timestamp ASC")
+            cursor.execute(" ".join(query), params)
+
+            rows = cursor.fetchall()
+            attempts: List[AuthAttempt] = []
+
+            for row in rows:
+                attempts.append(
+                    AuthAttempt(
+                        attempt_id=row['attempt_id'],
+                        user_id=row['user_id'],
+                        email_hash=row['email_hash'],
+                        timestamp=self._parse_datetime(row['timestamp']),
+                        success=bool(row['success']),
+                        attempt_type=row['attempt_type'],
+                        ip_address=row['ip_address'],
+                        failure_reason=row['failure_reason'],
+                    )
+                )
+
+            return attempts
+
+    def _bind_instance_secret(self, cursor: sqlite3.Cursor) -> None:
+        """Ensure the authentication database is bound to the guard secret."""
+
+        guard = getattr(self, "_instance_guard", None)
+        if guard is None:
+            return
+
+        guard_secret = guard.get_secret()
+        expected_hash = self.hash_instance_secret(guard_secret)
+
+        cursor.execute(
+            "SELECT value FROM system_state WHERE key = ?",
+            (self.INSTANCE_SECRET_KEY,)
+        )
+        row = cursor.fetchone()
+
+        status = guard.status
+
+        if row is None:
+            if status == "provisioned":
+                guard.lockdown("missing_instance_secret")
+                raise TamperDetectedError(
+                    "Authentication store integrity verification failed; manual recovery required."
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO system_state (key, value, created_at, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (self.INSTANCE_SECRET_KEY, expected_hash)
+            )
+        elif row['value'] != expected_hash:
+            guard.lockdown("binding_mismatch")
+            raise TamperDetectedError(
+                "Authentication store integrity verification failed; manual recovery required."
+            )
+
+        guard.mark_provisioned()

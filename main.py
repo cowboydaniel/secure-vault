@@ -1225,6 +1225,11 @@ def main():
         print(f"System requirements not met: {e}")
         return 1
 
+    try:
+        authenticator = CLIAuthenticator()
+    except AuthenticationFlowError as exc:
+        logging.getLogger('secure_vault').error(f"Authentication unavailable: {exc}")
+        return 1
     authenticator = CLIAuthenticator()
     session = None
     try:

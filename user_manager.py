@@ -117,6 +117,15 @@ class UserManager:
         self.validate_password(password)
         self.pin_manager.validate_pin_format(pin)
 
+        if self.db.has_users():
+            raise UserExistsError(
+                "This SecureVault installation already has a provisioned owner account."
+            )
+
+        # Step 2: Hash email for storage and lookup
+        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+
         # Step 2: Hash email for storage and lookup
         email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
         email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
