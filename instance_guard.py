@@ -121,6 +121,12 @@ class InstanceGuard:
             raise TamperDetectedError(
                 "Authentication store integrity verification failed; manual recovery required."
             )
+            if status == "provisioned" or db.has_users():
+                self.lockdown("missing_instance_secret")
+                raise TamperDetectedError(
+                    "Authentication store integrity verification failed; manual recovery required."
+                )
+            return
 
         expected_hash = db.hash_instance_secret(self.get_secret())
         if stored_hash != expected_hash:

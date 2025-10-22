@@ -19,6 +19,7 @@ if str(project_root) not in sys.path:
 
 from audit_logger import AuditEventType, AuditSeverity, AuditLogger, get_audit_logger  # noqa: E402
 from auth_manager import AuthManager, AuthSession, SystemLockdownError  # noqa: E402
+from auth_manager import AuthManager, AuthSession  # noqa: E402
 from LINUX_GUI.ui.main_window import MainWindow  # noqa: E402
 from LINUX_GUI.ui.dialogs import FirstStartWizard, LoginDialog  # noqa: E402
 
@@ -85,6 +86,7 @@ def main() -> int:
         )
         logger.error("Unable to start GUI due to lockdown: %s", exc)
         return 1
+    auth_manager = AuthManager()
     audit_logger = get_audit_logger()
 
     session, email = _obtain_authenticated_session(auth_manager, audit_logger)
