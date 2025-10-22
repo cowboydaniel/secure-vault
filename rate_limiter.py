@@ -33,6 +33,10 @@ class RateLimitConfig:
     exponential_backoff: bool = True         # Use exponential backoff
     base_delay_seconds: float = 1.0          # Base delay for exponential backoff
     max_delay_seconds: float = 60.0          # Maximum delay cap
+    max_global_attempts: int = 20            # Failed attempts across the device window
+    global_window_seconds: int = 300         # Window size for device-level rate limiting
+    max_email_attempts: int = 8              # Failed attempts per email hash
+    email_window_seconds: int = 120          # Window size for per-email throttling
 
 
 class RateLimitError(Exception):
@@ -126,6 +130,24 @@ class RateLimiter:
                     retry_after=retry_after
                 )
 
+    def check_global_rate_limit(self, email_hash: Optional[bytes]) -> None:
+        """Enforce device-level and per-email throttles."""
+
+        self._enforce_window_limit(
+            email_hash=None,
+            max_attempts=self.config.max_global_attempts,
+            window_seconds=self.config.global_window_seconds,
+            scope="device",
+        )
+
+        if email_hash is not None:
+            self._enforce_window_limit(
+                email_hash=email_hash,
+                max_attempts=self.config.max_email_attempts,
+                window_seconds=self.config.email_window_seconds,
+                scope="account",
+            )
+
     def record_failed_attempt(self, user_id: int) -> None:
         """
         Record a failed authentication attempt.
@@ -193,6 +215,38 @@ class RateLimiter:
 
         # Cap at maximum delay
         return min(delay, self.config.max_delay_seconds)
+
+    def _enforce_window_limit(
+        self,
+        email_hash: Optional[bytes],
+        max_attempts: int,
+        window_seconds: int,
+        scope: str,
+    ) -> None:
+        if max_attempts <= 0 or window_seconds <= 0:
+            return
+
+        window_start = datetime.now() - timedelta(seconds=window_seconds)
+        attempts = self.db.get_failed_attempts_since(window_start, email_hash=email_hash)
+
+        if len(attempts) < max_attempts:
+            return
+
+        oldest = attempts[0]
+        if not oldest.timestamp:
+            raise RateLimitError(
+                "Too many authentication failures. Please wait before trying again."
+            )
+
+        retry_after = window_seconds - (datetime.now() - oldest.timestamp).total_seconds()
+        retry_after = max(1.0, retry_after)
+
+        if scope == "device":
+            message = "Too many failed attempts on this device. Please wait before trying again."
+        else:
+            message = "Too many failed attempts for this account. Please wait before trying again."
+
+        raise RateLimitError(message, retry_after=retry_after)
 
     def is_locked(self, user_id: int) -> bool:
         """

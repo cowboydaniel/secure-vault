@@ -17,6 +17,8 @@ import warnings
 from typing import Optional, Union, TypeVar, Type, Any, Tuple
 import weakref
 
+from crypto_utils import secure_wipe as _crypto_secure_wipe
+
 # Platform-specific imports
 try:
     import fcntl
@@ -261,6 +263,11 @@ def secure_free(mem):
     """
     if hasattr(mem, '_release'):
         mem._release()
+
+
+def secure_wipe(data: Union[bytearray, memoryview, bytes]) -> None:
+    """Re-export secure_wipe for backwards compatibility."""
+    _crypto_secure_wipe(data)
 
 # Secure string implementation
 class SecureString:
