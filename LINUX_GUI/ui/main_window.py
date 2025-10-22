@@ -24,7 +24,14 @@ from LINUX_GUI.utils.clipboard_security import ClipboardSecurityManager
 from auth_manager import AuthManager, AuthSession
 from .dialogs import SettingsDialog, AccountDialog, HelpDialog, AboutDialog
 from .widgets import Header, Footer
-from .views import EncryptView, DecryptView, KeyManagerView
+from .views import (
+    EncryptView,
+    DecryptView,
+    KeyManagerView,
+    SecureNotesView,
+    ActivityMonitorView,
+    VaultHealthView,
+)
 
 
 class MainWindow(QMainWindow):
@@ -232,6 +239,19 @@ class MainWindow(QMainWindow):
         btn_key_manager.clicked.connect(self.show_key_manager)
         btn_key_manager.setMinimumSize(240, 48)
 
+        # Feature buttons for auxiliary tools
+        btn_secure_notes = QPushButton("Secure Notes")
+        btn_secure_notes.setMinimumSize(240, 48)
+        btn_secure_notes.clicked.connect(self.show_secure_notes)
+
+        btn_activity_monitor = QPushButton("Activity Monitor")
+        btn_activity_monitor.setMinimumSize(240, 48)
+        btn_activity_monitor.clicked.connect(self.show_activity_monitor)
+
+        btn_vault_health = QPushButton("Vault Health Check")
+        btn_vault_health.setMinimumSize(240, 48)
+        btn_vault_health.clicked.connect(self.show_vault_health)
+
         # Button layout
         button_layout = QVBoxLayout()
         button_layout.setSpacing(12)
@@ -239,6 +259,9 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(btn_encrypt)
         button_layout.addWidget(btn_decrypt)
         button_layout.addWidget(btn_key_manager)
+        button_layout.addWidget(btn_secure_notes)
+        button_layout.addWidget(btn_activity_monitor)
+        button_layout.addWidget(btn_vault_health)
 
         # Add widgets to layout with proper spacing
         layout.addStretch()
@@ -263,6 +286,20 @@ class MainWindow(QMainWindow):
         self.key_manager_view = KeyManagerView()
         self.key_manager_view.back_requested.connect(self.show_main_menu)
         self.stacked_widget.addWidget(self.key_manager_view)  # index 3
+
+        self.secure_notes_view = SecureNotesView(
+            session_provider=self.get_authenticated_session
+        )
+        self.secure_notes_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.secure_notes_view)  # index 4
+
+        self.activity_monitor_view = ActivityMonitorView()
+        self.activity_monitor_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.activity_monitor_view)  # index 5
+
+        self.vault_health_view = VaultHealthView()
+        self.vault_health_view.back_requested.connect(self.show_main_menu)
+        self.stacked_widget.addWidget(self.vault_health_view)  # index 6
     
     def apply_styles(self):
         """Apply styles to the window and its children."""
@@ -299,6 +336,24 @@ class MainWindow(QMainWindow):
         # Refresh key list when opening
         if hasattr(self, 'key_manager_view'):
             self.key_manager_view.load_keys()
+
+    def show_secure_notes(self):
+        """Show the secure notes view."""
+        self.secure_notes_view.load_notes()
+        self.stacked_widget.setCurrentIndex(4)
+        self.footer.set_status("Secure notes ready")
+
+    def show_activity_monitor(self):
+        """Show the activity monitor."""
+        self.activity_monitor_view.refresh_events()
+        self.stacked_widget.setCurrentIndex(5)
+        self.footer.set_status("Activity monitor loaded")
+
+    def show_vault_health(self):
+        """Show the vault health view."""
+        self.vault_health_view.run_checks()
+        self.stacked_widget.setCurrentIndex(6)
+        self.footer.set_status("Vault health check complete")
     
     def show_settings(self):
         """Show the settings dialog."""
@@ -331,7 +386,7 @@ class MainWindow(QMainWindow):
         """Show the about dialog."""
         dialog = AboutDialog(self)
         dialog.exec()
-    
+
     def sign_out(self):
         """Handle sign out by delegating to the configured callback."""
 
