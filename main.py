@@ -1230,6 +1230,7 @@ def main():
     except AuthenticationFlowError as exc:
         logging.getLogger('secure_vault').error(f"Authentication unavailable: {exc}")
         return 1
+    authenticator = CLIAuthenticator()
     session = None
     try:
         session = authenticator.ensure_authenticated_session()

@@ -10,6 +10,9 @@ from instance_guard import TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
 from user_manager import UserManager, UserExistsError
+from pin_manager import PINManager, PINValidationError
+from rate_limiter import AccountLockedError
+from user_manager import UserManager
 
 
 class AuthenticationTestCase(unittest.TestCase):
@@ -22,6 +25,8 @@ class AuthenticationTestCase(unittest.TestCase):
         os.environ["SECURE_VAULT_STATE_DIR"] = self.state_dir
         self.db_path = os.path.join(self.temp_dir.name, "users.db")
         self.db = AuthDatabase(db_path=self.db_path)
+        db_path = os.path.join(self.temp_dir.name, "users.db")
+        self.db = AuthDatabase(db_path=db_path)
         self.auth_manager = AuthManager(db=self.db)
         self.user_manager: UserManager = self.auth_manager.user_manager
 

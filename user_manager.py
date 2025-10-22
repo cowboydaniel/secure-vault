@@ -126,6 +126,10 @@ class UserManager:
         email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
         email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
 
+        # Step 2: Hash email for storage and lookup
+        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+
         # Check if user already exists (peppered hash first, legacy fallback)
         existing_user = self.db.get_user_by_email_lookup_hash(email_lookup_hash)
         if not existing_user:

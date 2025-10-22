@@ -219,6 +219,7 @@ class AuthManager:
         if not user:
             # Don't reveal that user doesn't exist
             # Record attempt with email hash for tracking
+            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_lookup_hash,

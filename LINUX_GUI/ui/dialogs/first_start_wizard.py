@@ -159,6 +159,7 @@ class FirstStartWizard(QWizard):
             user_id = self.user_manager.create_user(email=email, password=password, pin=pin)
 
             email_hash_hex = self.auth_manager.pin_manager.hash_email_for_lookup(email).hex()
+            email_hash_hex = self.auth_manager.pin_manager.hash_email(email).hex()
             self.audit_logger.log_event(
                 AuditEventType.CONFIG_CHANGED,
                 AuditSeverity.INFO,
