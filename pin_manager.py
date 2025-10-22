@@ -17,7 +17,7 @@ import os
 import re
 import logging
 import hashlib
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 
 # Argon2 for key derivation
@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Secure memory wiping
 from secure_memory import secure_wipe
+from auth_secrets import get_email_pepper
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,32 @@ class Argon2Params:
     hash_length: int = 32         # Output length in bytes (256-bit)
     salt_length: int = 16         # Salt length in bytes (128-bit)
     type: str = "argon2id"        # Hybrid mode (recommended)
+    version: int = 0x13           # Argon2 version 1.3
+
+    def to_metadata(self) -> Dict[str, Any]:
+        return {
+            "algorithm": "argon2id",
+            "time_cost": self.time_cost,
+            "memory_cost": self.memory_cost,
+            "parallelism": self.parallelism,
+            "hash_length": self.hash_length,
+            "salt_length": self.salt_length,
+            "version": self.version,
+        }
+
+    @classmethod
+    def from_metadata(cls, metadata: Optional[Dict[str, Any]]) -> "Argon2Params":
+        if not metadata:
+            return cls()
+        return cls(
+            time_cost=metadata.get("time_cost", cls.time_cost),
+            memory_cost=metadata.get("memory_cost", cls.memory_cost),
+            parallelism=metadata.get("parallelism", cls.parallelism),
+            hash_length=metadata.get("hash_length", cls.hash_length),
+            salt_length=metadata.get("salt_length", cls.salt_length),
+            type=metadata.get("algorithm", "argon2id"),
+            version=metadata.get("version", cls.version),
+        )
 
 
 class PINValidationError(Exception):
@@ -165,7 +192,14 @@ class PINManager:
 
         return False
 
-    def derive_key_from_pin(self, pin: str, salt: bytes) -> bytes:
+    def derive_key_from_pin(
+        self,
+        pin: str,
+        salt: bytes,
+        *,
+        algorithm: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bytes:
         """
         Derive encryption key from PIN using Argon2id.
 
@@ -188,25 +222,29 @@ class PINManager:
         pin_bytes = pin.encode('utf-8')
 
         try:
-            if ARGON2_AVAILABLE:
-                # Use Argon2id (recommended)
+            alg = (algorithm or ("argon2id" if ARGON2_AVAILABLE else "pbkdf2_sha256")).lower()
+            if alg == "argon2id" and ARGON2_AVAILABLE:
+                params = Argon2Params.from_metadata(metadata) if metadata else self.params
                 derived_key = hash_secret_raw(
                     secret=pin_bytes,
                     salt=salt,
-                    time_cost=self.params.time_cost,
-                    memory_cost=self.params.memory_cost,
-                    parallelism=self.params.parallelism,
-                    hash_len=self.params.hash_length,
-                    type=Type.ID  # Argon2id (hybrid mode)
+                    time_cost=params.time_cost,
+                    memory_cost=params.memory_cost,
+                    parallelism=params.parallelism,
+                    hash_len=params.hash_length,
+                    type=Type.ID,
+                    version=params.version,
                 )
             else:
-                # Fallback to PBKDF2 (less secure but available everywhere)
-                logger.warning("Using PBKDF2 fallback - consider installing argon2-cffi")
+                params = metadata or {}
+                iterations = int(params.get("iterations", 600_000))
+                length = int(params.get("length", self.params.hash_length))
+                logger.warning("Using PBKDF2 for PIN derivation - ensure rate limiting is enforced")
                 kdf = PBKDF2HMAC(
                     algorithm=hashes.SHA256(),
-                    length=self.params.hash_length,
+                    length=length,
                     salt=salt,
-                    iterations=600000,  # OWASP recommendation
+                    iterations=iterations,
                 )
                 derived_key = kdf.derive(pin_bytes)
 
@@ -401,21 +439,42 @@ class PINManager:
         """
         return os.urandom(32)
 
-    def hash_email(self, email: str) -> bytes:
-        """
-        Hash email address for storage.
+    def hash_email_for_lookup(self, email: str) -> bytes:
+        """Return a peppered hash for consistent email lookups."""
+        email_normalized = email.lower().strip().encode("utf-8")
+        pepper = get_email_pepper()
+        return hashlib.blake2b(email_normalized, key=pepper, digest_size=32).digest()
 
-        Emails are hashed before storage for privacy.
-        BLAKE2b is used as it's fast and provides good collision resistance.
+    def hash_email_for_storage(self, email: str, *, salt: Optional[bytes] = None) -> Tuple[bytes, bytes]:
+        """Return a salted & peppered hash along with the salt used."""
+        email_normalized = email.lower().strip().encode("utf-8")
+        pepper = get_email_pepper()
+        salt = salt or os.urandom(16)
+        digest = hashlib.blake2b(
+            email_normalized,
+            key=pepper,
+            salt=salt,
+            digest_size=32,
+        ).digest()
+        return digest, salt
 
-        Args:
-            email: Email address (normalized to lowercase)
+    def hash_email_legacy(self, email: str) -> bytes:
+        """Return the legacy unsalted hash for backward compatibility."""
+        email_normalized = email.lower().strip().encode("utf-8")
+        return hashlib.blake2b(email_normalized).digest()
 
-        Returns:
-            64-byte BLAKE2b hash
-        """
-        email_normalized = email.lower().strip()
-        return hashlib.blake2b(email_normalized.encode('utf-8')).digest()
+    def export_kdf_metadata(self, *, algorithm: Optional[str] = None) -> Dict[str, Any]:
+        alg = (algorithm or ("argon2id" if ARGON2_AVAILABLE else "pbkdf2_sha256")).lower()
+        if alg == "argon2id" and ARGON2_AVAILABLE:
+            return self.params.to_metadata()
+        if alg == "argon2id":
+            # Argon2 requested but unavailable; fall back metadata should reflect PBKDF2 usage
+            alg = "pbkdf2_sha256"
+        return {
+            "algorithm": alg,
+            "iterations": 600_000,
+            "length": self.params.hash_length,
+        }
 
 
 # Convenience functions for common operations

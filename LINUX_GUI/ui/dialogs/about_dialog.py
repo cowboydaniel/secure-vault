@@ -1,6 +1,6 @@
-"""
-About dialog for the SecureVault application.
-"""
+"""About dialog for the SecureVault application."""
+
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 
 class AboutDialog(QDialog):

@@ -11,6 +11,7 @@ import os
 import time
 import hashlib
 import hmac
+import ctypes
 from typing import Optional, Union, List, Tuple
 import struct
 import logging
