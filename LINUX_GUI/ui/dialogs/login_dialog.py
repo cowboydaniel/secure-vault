@@ -143,6 +143,7 @@ class LoginDialog(QDialog):
     def _log_failure(self, email: str, reason: str, message: str) -> None:
         try:
             email_hash = self.auth_manager.pin_manager.hash_email_for_lookup(email).hex()
+            email_hash = self.auth_manager.pin_manager.hash_email(email).hex()
         except Exception:
             email_hash = "unknown"
 
