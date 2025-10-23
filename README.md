@@ -85,6 +85,7 @@ A revolutionary encryption system that combines multiple layers of security to p
 
 ### Quality & Validation
 - **Cryptographic Validation**: S-box quality analysis, randomness testing
+- **NIST SP 800-22 Coverage**: Forward and reverse cumulative sums tests with configurable health thresholds surface entropy regressions quickly
 - **Extensive Testing**: Unit tests, integration tests, property-based testing
 - **Security Analysis**: Built-in crypto property validation
 - **Configurable Security**: Adjust parameters for your threat model
@@ -198,7 +199,7 @@ key_manager = KeyManager({
 
 ### Entropy & Random Number Generation
 - `entropy_pool.py`: Fortuna-like entropy accumulator with multiple pools
-- `entropy_monitor.py`: Entropy quality monitoring and validation
+- `entropy_monitor.py`: Entropy quality monitoring and validation, including bidirectional cumulative sums randomness testing and health scoring penalties when thresholds are breached
 - `hardware_rng.py`: Hardware RNG integration (RDRAND/RDSEED, TPM)
 - `rng_manager.py`: Random number generation coordination
 
