@@ -5,6 +5,7 @@ Manages metadata for encrypted files including file information,
 encryption parameters, and integrity data in a secure SQLite database.
 """
 
+import atexit
 import sqlite3
 import json
 import time
@@ -13,6 +14,8 @@ from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from dataclasses import dataclass, asdict
 import hashlib
+
+from auth_database import ConnectionPool
 
 
 @dataclass
@@ -57,66 +60,73 @@ class MetadataManager:
         """
         self.db_path = Path(db_path)
         self.encryption_key = encryption_key
+
+        self._pool = ConnectionPool(
+            str(self.db_path),
+            max_size=5,
+            connect_kwargs={"check_same_thread": False},
+        )
+        atexit.register(self.close)
+
         self._init_database()
 
     def _init_database(self):
         """Initialize database schema"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with self._pool.connection() as conn:
+            cursor = conn.cursor()
 
-        # Main metadata table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS file_metadata (
-                file_id TEXT PRIMARY KEY,
-                original_name TEXT NOT NULL,
-                original_size INTEGER NOT NULL,
-                encrypted_size INTEGER NOT NULL,
-                encryption_timestamp REAL NOT NULL,
-                encryption_algorithm TEXT NOT NULL,
-                key_id TEXT NOT NULL,
-                iv BLOB NOT NULL,
-                integrity_hash TEXT NOT NULL,
-                compression_used BOOLEAN NOT NULL,
-                compression_algorithm TEXT,
-                shares_total INTEGER,
-                shares_threshold INTEGER,
-                tags TEXT,
-                custom_metadata TEXT,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
-            )
-        ''')
+            # Main metadata table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS file_metadata (
+                    file_id TEXT PRIMARY KEY,
+                    original_name TEXT NOT NULL,
+                    original_size INTEGER NOT NULL,
+                    encrypted_size INTEGER NOT NULL,
+                    encryption_timestamp REAL NOT NULL,
+                    encryption_algorithm TEXT NOT NULL,
+                    key_id TEXT NOT NULL,
+                    iv BLOB NOT NULL,
+                    integrity_hash TEXT NOT NULL,
+                    compression_used BOOLEAN NOT NULL,
+                    compression_algorithm TEXT,
+                    shares_total INTEGER,
+                    shares_threshold INTEGER,
+                    tags TEXT,
+                    custom_metadata TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            ''')
 
-        # Index for faster queries
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_original_name
-            ON file_metadata(original_name)
-        ''')
+            # Index for faster queries
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_original_name
+                ON file_metadata(original_name)
+            ''')
 
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_encryption_timestamp
-            ON file_metadata(encryption_timestamp)
-        ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_encryption_timestamp
+                ON file_metadata(encryption_timestamp)
+            ''')
 
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_key_id
-            ON file_metadata(key_id)
-        ''')
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_key_id
+                ON file_metadata(key_id)
+            ''')
 
-        # Audit log table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS metadata_audit (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT NOT NULL,
-                operation TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                details TEXT,
-                FOREIGN KEY (file_id) REFERENCES file_metadata(file_id)
-            )
-        ''')
+            # Audit log table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS metadata_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    details TEXT,
+                    FOREIGN KEY (file_id) REFERENCES file_metadata(file_id)
+                )
+            ''')
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
     def add_file_metadata(self, metadata: FileMetadata) -> bool:
         """
@@ -128,52 +138,52 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn: Optional[sqlite3.Connection] = None
 
         try:
-            current_time = time.time()
+            with self._pool.connection() as pooled_conn:
+                conn = pooled_conn
+                cursor = conn.cursor()
+                current_time = time.time()
 
-            cursor.execute('''
-                INSERT INTO file_metadata VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
-            ''', (
-                metadata.file_id,
-                metadata.original_name,
-                metadata.original_size,
-                metadata.encrypted_size,
-                metadata.encryption_timestamp,
-                metadata.encryption_algorithm,
-                metadata.key_id,
-                metadata.iv,
-                metadata.integrity_hash,
-                metadata.compression_used,
-                metadata.compression_algorithm,
-                metadata.shares_total,
-                metadata.shares_threshold,
-                json.dumps(metadata.tags) if metadata.tags else None,
-                json.dumps(metadata.custom_metadata) if metadata.custom_metadata else None,
-                current_time,
-                current_time
-            ))
+                cursor.execute('''
+                    INSERT INTO file_metadata VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
+                ''', (
+                    metadata.file_id,
+                    metadata.original_name,
+                    metadata.original_size,
+                    metadata.encrypted_size,
+                    metadata.encryption_timestamp,
+                    metadata.encryption_algorithm,
+                    metadata.key_id,
+                    metadata.iv,
+                    metadata.integrity_hash,
+                    metadata.compression_used,
+                    metadata.compression_algorithm,
+                    metadata.shares_total,
+                    metadata.shares_threshold,
+                    json.dumps(metadata.tags) if metadata.tags else None,
+                    json.dumps(metadata.custom_metadata) if metadata.custom_metadata else None,
+                    current_time,
+                    current_time
+                ))
 
-            # Log audit event
-            self._log_audit(cursor, metadata.file_id, 'CREATE', {
-                'original_name': metadata.original_name,
-                'size': metadata.original_size
-            })
+                # Log audit event
+                self._log_audit(cursor, metadata.file_id, 'CREATE', {
+                    'original_name': metadata.original_name,
+                    'size': metadata.original_size
+                })
 
-            conn.commit()
-            return True
+                conn.commit()
+                return True
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            conn.rollback()
+            if conn and conn.in_transaction:
+                conn.rollback()
             return False
-
-        finally:
-            conn.close()
 
     def get_file_metadata(self, file_id: str) -> Optional[FileMetadata]:
         """
@@ -185,45 +195,50 @@ class MetadataManager:
         Returns:
             FileMetadata object or None if not found
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn: Optional[sqlite3.Connection] = None
 
         try:
-            cursor.execute('''
-                SELECT * FROM file_metadata WHERE file_id = ?
-            ''', (file_id,))
+            with self._pool.connection() as pooled_conn:
+                conn = pooled_conn
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM file_metadata WHERE file_id = ?
+                ''', (file_id,))
 
-            row = cursor.fetchone()
+                row = cursor.fetchone()
 
-            if row:
-                metadata = FileMetadata(
-                    file_id=row[0],
-                    original_name=row[1],
-                    original_size=row[2],
-                    encrypted_size=row[3],
-                    encryption_timestamp=row[4],
-                    encryption_algorithm=row[5],
-                    key_id=row[6],
-                    iv=row[7],
-                    integrity_hash=row[8],
-                    compression_used=bool(row[9]),
-                    compression_algorithm=row[10],
-                    shares_total=row[11],
-                    shares_threshold=row[12],
-                    tags=json.loads(row[13]) if row[13] else None,
-                    custom_metadata=json.loads(row[14]) if row[14] else None
-                )
+                if row:
+                    metadata = FileMetadata(
+                        file_id=row[0],
+                        original_name=row[1],
+                        original_size=row[2],
+                        encrypted_size=row[3],
+                        encryption_timestamp=row[4],
+                        encryption_algorithm=row[5],
+                        key_id=row[6],
+                        iv=row[7],
+                        integrity_hash=row[8],
+                        compression_used=bool(row[9]),
+                        compression_algorithm=row[10],
+                        shares_total=row[11],
+                        shares_threshold=row[12],
+                        tags=json.loads(row[13]) if row[13] else None,
+                        custom_metadata=json.loads(row[14]) if row[14] else None
+                    )
 
-                # Log access
-                self._log_audit(cursor, file_id, 'READ', {})
-                conn.commit()
+                    # Log access
+                    self._log_audit(cursor, file_id, 'READ', {})
+                    conn.commit()
 
-                return metadata
+                    return metadata
 
+                return None
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            if conn and conn.in_transaction:
+                conn.rollback()
             return None
-
-        finally:
-            conn.close()
 
     def update_file_metadata(self, file_id: str, updates: Dict[str, Any]) -> bool:
         """
@@ -236,37 +251,39 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        if not updates:
+            return False
+
+        conn: Optional[sqlite3.Connection] = None
 
         try:
-            # Build update query
-            set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
-            set_clause += ", updated_at = ?"
+            with self._pool.connection() as pooled_conn:
+                conn = pooled_conn
+                cursor = conn.cursor()
 
-            values = list(updates.values()) + [time.time(), file_id]
+                set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
+                set_clause += ", updated_at = ?"
 
-            cursor.execute(f'''
-                UPDATE file_metadata
-                SET {set_clause}
-                WHERE file_id = ?
-            ''', values)
+                values = list(updates.values()) + [time.time(), file_id]
 
-            if cursor.rowcount > 0:
-                # Log audit event
-                self._log_audit(cursor, file_id, 'UPDATE', updates)
-                conn.commit()
-                return True
+                cursor.execute(f'''
+                    UPDATE file_metadata
+                    SET {set_clause}
+                    WHERE file_id = ?
+                ''', values)
 
-            return False
+                if cursor.rowcount > 0:
+                    self._log_audit(cursor, file_id, 'UPDATE', updates)
+                    conn.commit()
+                    return True
+
+                return False
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            conn.rollback()
+            if conn and conn.in_transaction:
+                conn.rollback()
             return False
-
-        finally:
-            conn.close()
 
     def delete_file_metadata(self, file_id: str) -> bool:
         """
@@ -278,22 +295,28 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn: Optional[sqlite3.Connection] = None
 
         try:
-            # Log deletion before removing
-            self._log_audit(cursor, file_id, 'DELETE', {})
+            with self._pool.connection() as pooled_conn:
+                conn = pooled_conn
+                cursor = conn.cursor()
 
-            cursor.execute('''
-                DELETE FROM file_metadata WHERE file_id = ?
-            ''', (file_id,))
+                # Log deletion before removing
+                self._log_audit(cursor, file_id, 'DELETE', {})
 
-            conn.commit()
-            return cursor.rowcount > 0
+                cursor.execute('''
+                    DELETE FROM file_metadata WHERE file_id = ?
+                ''', (file_id,))
 
-        finally:
-            conn.close()
+                conn.commit()
+                return cursor.rowcount > 0
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            if conn and conn.in_transaction:
+                conn.rollback()
+            return False
 
     def search_files(self,
                     name_pattern: Optional[str] = None,
@@ -318,69 +341,68 @@ class MetadataManager:
         Returns:
             List of matching FileMetadata objects
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         try:
-            query = "SELECT * FROM file_metadata WHERE 1=1"
-            params = []
+            with self._pool.connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT * FROM file_metadata WHERE 1=1"
+                params: List[Any] = []
 
-            if name_pattern:
-                query += " AND original_name LIKE ?"
-                params.append(name_pattern)
+                if name_pattern:
+                    query += " AND original_name LIKE ?"
+                    params.append(name_pattern)
 
-            if min_size is not None:
-                query += " AND original_size >= ?"
-                params.append(min_size)
+                if min_size is not None:
+                    query += " AND original_size >= ?"
+                    params.append(min_size)
 
-            if max_size is not None:
-                query += " AND original_size <= ?"
-                params.append(max_size)
+                if max_size is not None:
+                    query += " AND original_size <= ?"
+                    params.append(max_size)
 
-            if start_date is not None:
-                query += " AND encryption_timestamp >= ?"
-                params.append(start_date)
+                if start_date is not None:
+                    query += " AND encryption_timestamp >= ?"
+                    params.append(start_date)
 
-            if end_date is not None:
-                query += " AND encryption_timestamp <= ?"
-                params.append(end_date)
+                if end_date is not None:
+                    query += " AND encryption_timestamp <= ?"
+                    params.append(end_date)
 
-            query += " ORDER BY encryption_timestamp DESC LIMIT ?"
-            params.append(limit)
+                query += " ORDER BY encryption_timestamp DESC LIMIT ?"
+                params.append(limit)
 
-            cursor.execute(query, params)
+                cursor.execute(query, params)
 
-            results = []
-            for row in cursor.fetchall():
-                metadata = FileMetadata(
-                    file_id=row[0],
-                    original_name=row[1],
-                    original_size=row[2],
-                    encrypted_size=row[3],
-                    encryption_timestamp=row[4],
-                    encryption_algorithm=row[5],
-                    key_id=row[6],
-                    iv=row[7],
-                    integrity_hash=row[8],
-                    compression_used=bool(row[9]),
-                    compression_algorithm=row[10],
-                    shares_total=row[11],
-                    shares_threshold=row[12],
-                    tags=json.loads(row[13]) if row[13] else None,
-                    custom_metadata=json.loads(row[14]) if row[14] else None
-                )
+                results: List[FileMetadata] = []
+                for row in cursor.fetchall():
+                    metadata = FileMetadata(
+                        file_id=row[0],
+                        original_name=row[1],
+                        original_size=row[2],
+                        encrypted_size=row[3],
+                        encryption_timestamp=row[4],
+                        encryption_algorithm=row[5],
+                        key_id=row[6],
+                        iv=row[7],
+                        integrity_hash=row[8],
+                        compression_used=bool(row[9]),
+                        compression_algorithm=row[10],
+                        shares_total=row[11],
+                        shares_threshold=row[12],
+                        tags=json.loads(row[13]) if row[13] else None,
+                        custom_metadata=json.loads(row[14]) if row[14] else None
+                    )
 
-                # Filter by tags if specified
-                if tags and metadata.tags:
-                    if any(tag in metadata.tags for tag in tags):
+                    if tags and metadata.tags:
+                        if any(tag in metadata.tags for tag in tags):
+                            results.append(metadata)
+                    elif not tags:
                         results.append(metadata)
-                elif not tags:
-                    results.append(metadata)
 
-            return results
+                return results
 
-        finally:
-            conn.close()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
 
     def list_all_files(self, limit: int = 100, offset: int = 0) -> List[FileMetadata]:
         """
@@ -393,41 +415,41 @@ class MetadataManager:
         Returns:
             List of FileMetadata objects
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         try:
-            cursor.execute('''
-                SELECT * FROM file_metadata
-                ORDER BY encryption_timestamp DESC
-                LIMIT ? OFFSET ?
-            ''', (limit, offset))
+            with self._pool.connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM file_metadata
+                    ORDER BY encryption_timestamp DESC
+                    LIMIT ? OFFSET ?
+                ''', (limit, offset))
 
-            results = []
-            for row in cursor.fetchall():
-                metadata = FileMetadata(
-                    file_id=row[0],
-                    original_name=row[1],
-                    original_size=row[2],
-                    encrypted_size=row[3],
-                    encryption_timestamp=row[4],
-                    encryption_algorithm=row[5],
-                    key_id=row[6],
-                    iv=row[7],
-                    integrity_hash=row[8],
-                    compression_used=bool(row[9]),
-                    compression_algorithm=row[10],
-                    shares_total=row[11],
-                    shares_threshold=row[12],
-                    tags=json.loads(row[13]) if row[13] else None,
-                    custom_metadata=json.loads(row[14]) if row[14] else None
-                )
-                results.append(metadata)
+                results: List[FileMetadata] = []
+                for row in cursor.fetchall():
+                    metadata = FileMetadata(
+                        file_id=row[0],
+                        original_name=row[1],
+                        original_size=row[2],
+                        encrypted_size=row[3],
+                        encryption_timestamp=row[4],
+                        encryption_algorithm=row[5],
+                        key_id=row[6],
+                        iv=row[7],
+                        integrity_hash=row[8],
+                        compression_used=bool(row[9]),
+                        compression_algorithm=row[10],
+                        shares_total=row[11],
+                        shares_threshold=row[12],
+                        tags=json.loads(row[13]) if row[13] else None,
+                        custom_metadata=json.loads(row[14]) if row[14] else None
+                    )
+                    results.append(metadata)
 
-            return results
+                return results
 
-        finally:
-            conn.close()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
 
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -436,42 +458,37 @@ class MetadataManager:
         Returns:
             Dictionary with statistics
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         try:
-            stats = {}
+            with self._pool.connection() as conn:
+                cursor = conn.cursor()
+                stats: Dict[str, Any] = {}
 
-            # Total files
-            cursor.execute("SELECT COUNT(*) FROM file_metadata")
-            stats['total_files'] = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM file_metadata")
+                stats['total_files'] = cursor.fetchone()[0]
 
-            # Total size (original)
-            cursor.execute("SELECT SUM(original_size) FROM file_metadata")
-            stats['total_original_size'] = cursor.fetchone()[0] or 0
+                cursor.execute("SELECT SUM(original_size) FROM file_metadata")
+                stats['total_original_size'] = cursor.fetchone()[0] or 0
 
-            # Total size (encrypted)
-            cursor.execute("SELECT SUM(encrypted_size) FROM file_metadata")
-            stats['total_encrypted_size'] = cursor.fetchone()[0] or 0
+                cursor.execute("SELECT SUM(encrypted_size) FROM file_metadata")
+                stats['total_encrypted_size'] = cursor.fetchone()[0] or 0
 
-            # Compression stats
-            cursor.execute('''
-                SELECT COUNT(*) FROM file_metadata WHERE compression_used = 1
-            ''')
-            stats['files_compressed'] = cursor.fetchone()[0]
+                cursor.execute('''
+                    SELECT COUNT(*) FROM file_metadata WHERE compression_used = 1
+                ''')
+                stats['files_compressed'] = cursor.fetchone()[0]
 
-            # Algorithm usage
-            cursor.execute('''
-                SELECT encryption_algorithm, COUNT(*)
-                FROM file_metadata
-                GROUP BY encryption_algorithm
-            ''')
-            stats['algorithm_usage'] = dict(cursor.fetchall())
+                cursor.execute('''
+                    SELECT encryption_algorithm, COUNT(*)
+                    FROM file_metadata
+                    GROUP BY encryption_algorithm
+                ''')
+                stats['algorithm_usage'] = dict(cursor.fetchall())
 
-            return stats
+                return stats
 
-        finally:
-            conn.close()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return {}
 
     def _log_audit(self, cursor, file_id: str, operation: str, details: Dict[str, Any]):
         """
@@ -487,6 +504,12 @@ class MetadataManager:
             INSERT INTO metadata_audit (file_id, operation, timestamp, details)
             VALUES (?, ?, ?, ?)
         ''', (file_id, operation, time.time(), json.dumps(details)))
+
+    def close(self) -> None:
+        """Release all connections held by the metadata manager."""
+
+        if hasattr(self, "_pool"):
+            self._pool.close()
 
     def export_metadata(self, output_path: Path) -> bool:
         """

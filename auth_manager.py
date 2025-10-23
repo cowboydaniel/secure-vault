@@ -12,6 +12,7 @@ components:
 This module provides the high-level authentication API used by the GUI and CLI.
 """
 
+import atexit
 import os
 import uuid
 import logging
@@ -162,6 +163,8 @@ class AuthManager:
 
         # Active sessions (in-memory)
         self._sessions: Dict[str, AuthSession] = {}
+
+        atexit.register(self.close)
 
         logger.info("Authentication manager initialized")
 
@@ -595,3 +598,9 @@ class AuthManager:
     def get_user_count(self) -> int:
         """Get total number of registered users"""
         return self.db.get_user_count()
+
+    def close(self) -> None:
+        """Release resources held by the authentication manager."""
+
+        if hasattr(self, "db"):
+            self.db.close()

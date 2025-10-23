@@ -1,8 +1,10 @@
 """Unit tests for SecureVault authentication components."""
 
+import concurrent.futures
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -12,19 +14,6 @@ from instance_guard import InstanceGuard, TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
 from user_manager import UserManager, UserExistsError
-import os
-import tempfile
-import unittest
-
-from auth_database import AuthDatabase
-from auth_manager import AuthManager, InvalidCredentialsError
-from instance_guard import TamperDetectedError
-from pin_manager import PINManager, PINValidationError
-from rate_limiter import AccountLockedError, RateLimitError
-from user_manager import UserManager, UserExistsError
-from pin_manager import PINManager, PINValidationError
-from rate_limiter import AccountLockedError
-from user_manager import UserManager
 
 
 class AuthenticationTestCase(unittest.TestCase):
@@ -36,13 +25,13 @@ class AuthenticationTestCase(unittest.TestCase):
         self._prev_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
         os.environ["SECURE_VAULT_STATE_DIR"] = self.state_dir
         self.db_path = os.path.join(self.temp_dir.name, "users.db")
-        self.db = AuthDatabase(db_path=self.db_path)
-        db_path = os.path.join(self.temp_dir.name, "users.db")
-        self.db = AuthDatabase(db_path=db_path)
+        self.db = AuthDatabase(db_path=self.db_path, pool_size=3)
         self.auth_manager = AuthManager(db=self.db)
         self.user_manager: UserManager = self.auth_manager.user_manager
 
     def tearDown(self) -> None:  # pragma: no cover - cleanup
+        self.auth_manager.close()
+        self.db.close()
         if self._prev_state_dir is not None:
             os.environ["SECURE_VAULT_STATE_DIR"] = self._prev_state_dir
         else:
@@ -207,6 +196,33 @@ class AuthenticationTestCase(unittest.TestCase):
 
         with self.assertRaises(TamperDetectedError):
             AuthDatabase(db_path=self.db_path)
+
+    def test_connection_pool_handles_concurrent_usage(self) -> None:
+        """Connection pool should safely serve concurrent readers."""
+
+        email = "pool@example.com"
+        password = "Str0ngPassword!"
+        pin = "123789"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+
+        seen_connections: set[int] = set()
+        lock = threading.Lock()
+
+        def query_user_count(_: int) -> int:
+            with self.db._pool.connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM users")
+                count = cursor.fetchone()[0]
+                with lock:
+                    seen_connections.add(id(conn))
+                return count
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(query_user_count, range(24)))
+
+        self.assertTrue(all(result >= 1 for result in results))
+        self.assertLessEqual(len(seen_connections), self.db._pool.max_size)
 
 
 
