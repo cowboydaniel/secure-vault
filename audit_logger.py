@@ -26,6 +26,9 @@ from crypto_utils import derive_key_hkdf_sha3_512
 from instance_guard import InstanceGuard, InstanceStateError, TamperDetectedError
 
 
+DEFAULT_AUDIT_LOG_DIR = Path(__file__).resolve().parent / "logs" / "audit"
+
+
 _SENSITIVE_DETAIL_KEYWORDS = {
     'key',
     'secret',
@@ -308,7 +311,7 @@ class AuditLogger:
     CHAIN_WRAP_INFO = b"audit-log-chain"
 
     def __init__(self,
-                 log_dir: str = "audit_logs",
+                 log_dir: Union[str, os.PathLike[str]] = DEFAULT_AUDIT_LOG_DIR,
                  log_file: str = "security_audit.log",
                  max_log_size: int = 10 * 1024 * 1024,  # 10 MB
                  max_backups: int = 10,
