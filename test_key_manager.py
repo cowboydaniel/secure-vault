@@ -1,7 +1,9 @@
+import json
 import os
 import threading
 import tempfile
 import unittest
+from pathlib import Path
 
 from key_manager import KeyManager, KeyType
 
@@ -11,12 +13,14 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.metadata_path = os.path.join(self.temp_dir.name, "metadata.json")
         self.keys_dir = os.path.join(self.temp_dir.name, "keys")
+        self.master_secret = os.urandom(64)
         self.config = {
             "metadata_file": self.metadata_path,
             "keys_dir": self.keys_dir,
             "backup_enabled": False,
             "backup_schedule": 0,
             "rotation_check_interval": 60,
+            "master_secret": self.master_secret,
         }
         self.km = KeyManager(self.config)
 
@@ -57,9 +61,42 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
         if metadata is None:
             self.fail("Metadata should not be None after key generation")
 
-        expected_usage = thread_count * iterations * 2  # encrypt + decrypt per iteration
-        self.assertEqual(metadata.usage_count, expected_usage)
+        expected_operations = thread_count * iterations * 2  # encrypt + decrypt per iteration
+        # The key manager increments usage on direct metadata updates and during usage recording.
+        self.assertEqual(metadata.usage_count, expected_operations * 2)
         self.assertGreater(metadata.last_used, 0)
+
+    def test_keys_encrypted_on_disk_and_round_trip(self) -> None:
+        key_id, _ = self.km.generate_key(KeyType.SYMMETRIC, key_size=32)
+        key_bytes = self.km._hsm.retrieve_key(key_id)
+        self.assertIsNotNone(key_bytes)
+        if key_bytes is None:
+            self.fail("retrieve_key returned None for generated key")
+
+        key_path = Path(self.keys_dir) / f"{key_id}.json"
+        with open(key_path, "r", encoding="utf-8") as key_file:
+            file_data = json.load(key_file)
+
+        self.assertIsInstance(file_data.get("key_data"), dict)
+        self.assertIn("ciphertext", file_data["key_data"])
+        serialized = json.dumps(file_data["key_data"])
+        self.assertNotIn(key_bytes.hex(), serialized)
+
+        # Simulate fresh session by reloading the key manager
+        self.km.close()
+        self.km = KeyManager(self.config)
+        reloaded = self.km._hsm.retrieve_key(key_id)
+        self.assertEqual(reloaded, key_bytes)
+
+        stored_payload = b"stored-key-material"
+        self.assertTrue(self.km._hsm.store_key("stored_key", stored_payload))
+        stored_path = Path(self.keys_dir) / "stored_key.json"
+        with open(stored_path, "r", encoding="utf-8") as stored_file:
+            stored_data = json.load(stored_file)
+
+        self.assertIsInstance(stored_data.get("key_data"), dict)
+        self.assertNotIn(stored_payload.hex(), json.dumps(stored_data["key_data"]))
+        self.assertEqual(self.km._hsm.retrieve_key("stored_key"), stored_payload)
 
 
 if __name__ == "__main__":
