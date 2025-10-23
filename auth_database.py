@@ -1452,10 +1452,13 @@ class AuthDatabase:
                 """,
                 (self.INSTANCE_SECRET_KEY, expected_hash)
             )
+            guard.ensure_binding_marker(expected_hash, allow_create=True)
         elif row['value'] != expected_hash:
             guard.lockdown("binding_mismatch")
             raise TamperDetectedError(
                 "Authentication store integrity verification failed; manual recovery required."
             )
+        else:
+            guard.ensure_binding_marker(expected_hash, allow_create=False)
 
         guard.mark_provisioned()
