@@ -17,6 +17,74 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 
 
+_SENSITIVE_DETAIL_KEYWORDS = {
+    'key',
+    'secret',
+    'token',
+    'password',
+    'passphrase',
+    'checksum',
+    'digest',
+    'hash',
+    'salt',
+    'iv',
+    'path',
+    'data',
+    'blob',
+    'bytes',
+    'credential'
+}
+
+_SENSITIVE_ALLOWLIST_KEYS = {'event_hash', 'metadata'}
+
+
+def _summarize_sensitive_value(value: Any) -> Any:
+    """Produce a safe summary for sensitive values."""
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    if isinstance(value, dict):
+        return f"<{len(value)} fields>"
+    if isinstance(value, (list, tuple, set)):
+        return f"<{len(list(value))} items>"
+    if value is None:
+        return None
+    return "<redacted>"
+
+
+def sanitize_audit_details(details: Any) -> Any:
+    """
+    Sanitize audit event details to avoid leaking sensitive data.
+
+    Args:
+        details: Arbitrary event details structure.
+
+    Returns:
+        Sanitized structure safe for logging.
+    """
+    if isinstance(details, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, value in details.items():
+            if key is None:
+                continue
+            key_lower = str(key).lower()
+            if key_lower in _SENSITIVE_ALLOWLIST_KEYS:
+                sanitized[key] = sanitize_audit_details(value)
+                continue
+            if any(token in key_lower for token in _SENSITIVE_DETAIL_KEYWORDS):
+                sanitized[key] = _summarize_sensitive_value(value)
+            else:
+                sanitized[key] = sanitize_audit_details(value)
+        return sanitized
+
+    if isinstance(details, (list, tuple, set)):
+        return [sanitize_audit_details(item) for item in list(details)]
+
+    if isinstance(details, (bytes, bytearray)):
+        return f"<{len(details)} bytes>"
+
+    return details
+
+
 class AuditEventType(Enum):
     """Types of security audit events"""
     # Authentication events
@@ -209,12 +277,14 @@ class AuditLogger:
             user_id: User identifier
             source_ip: Source IP address
         """
+        sanitized_details = sanitize_audit_details(details or {})
+
         event = AuditEvent(
             timestamp=time.time(),
             event_type=event_type,
             severity=severity,
             message=message,
-            details=details or {},
+            details=sanitized_details,
             user_id=user_id,
             session_id=self._session_id,
             source_ip=source_ip

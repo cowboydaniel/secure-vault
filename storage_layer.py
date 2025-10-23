@@ -27,6 +27,7 @@ from crypto_utils import (
 )
 from config import StorageConfig, SECURITY_LEVEL_BYTES, MAGIC_NUMBERS
 from constants import EncryptionMetadata
+from audit_logger import sanitize_audit_details
 
 logger = logging.getLogger(__name__)
 
@@ -150,18 +151,26 @@ class SecureStorageEngine:
                     operation TEXT NOT NULL,
                     timestamp REAL NOT NULL,
                     success BOOLEAN NOT NULL,
-                    details TEXT
+                    details TEXT,
+                    user_id TEXT
                 )
             """)
-            
+
+            # Ensure user_id column exists for older databases
+            cursor = conn.execute("PRAGMA table_info(access_log)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if 'user_id' not in columns:
+                conn.execute("ALTER TABLE access_log ADD COLUMN user_id TEXT")
+
             conn.commit()
     
-    def store_encrypted_data(self, 
+    def store_encrypted_data(self,
                            file_id: str,
                            encrypted_data: bytes,
                            original_name: str,
                            metadata: Dict[str, Any],
-                           storage_format: StorageFormat = StorageFormat.ENCRYPTED_CONTAINER) -> StorageContainer:
+                           storage_format: StorageFormat = StorageFormat.ENCRYPTED_CONTAINER,
+                           user_id: Optional[str] = None) -> StorageContainer:
         """
         Store encrypted data in secure container.
         
@@ -176,58 +185,80 @@ class SecureStorageEngine:
             Storage container with location info
         """
         logger.info(f"Storing encrypted data: {file_id}")
-        
-        # Generate storage key
-        storage_key = self._derive_storage_key(file_id)
-        
-        # Compress data if beneficial
-        compressed_data, compression_type = self._compress_data(encrypted_data)
-        
-        # Create storage container - now returns (container_data, checksum)
-        container_data, container_checksum = self._create_storage_container(
-            compressed_data, 
-            storage_key, 
-            metadata
-        )
-        
-        # The integrity hash is now the checksum of the container before adding the checksum
-        integrity_hash = container_checksum
-        
-        # Determine storage paths based on format
-        storage_paths = self._determine_storage_paths(file_id, storage_format)
-        
-        # Store container (which now includes the checksum at the end)
-        self._write_container_to_storage(container_data, storage_paths, storage_format)
-        
-        # Create metadata record
-        storage_metadata = StorageMetadata(
-            file_id=file_id,
-            original_name=original_name,
-            storage_format=storage_format,
-            compression_type=compression_type,
-            encryption_layers=metadata.get('encryption_layers', []),
-            total_size=len(container_data),
-            storage_paths=storage_paths,
-            checksum=integrity_hash,
-            timestamp=time.time(),
-            classification_level=metadata.get('classification_level', 3)
-        )
-        
-        # Save metadata to database
-        self._save_metadata(storage_metadata)
-        
-        # Log access
-        self._log_access(file_id, "STORE", True, f"Format: {storage_format.value}")
-        
-        container = StorageContainer(
-            container_id=file_id,
-            container_data=container_data,
-            metadata=storage_metadata,
-            integrity_hash=integrity_hash
-        )
-        
-        logger.info(f"Data stored successfully: {len(storage_paths)} locations")
-        return container
+
+        actor = self._resolve_user_id(metadata, user_id)
+        storage_metadata: Optional[StorageMetadata] = None
+
+        try:
+            # Generate storage key
+            storage_key = self._derive_storage_key(file_id)
+
+            # Compress data if beneficial
+            compressed_data, compression_type = self._compress_data(encrypted_data)
+
+            # Create storage container - now returns (container_data, checksum)
+            container_data, container_checksum = self._create_storage_container(
+                compressed_data,
+                storage_key,
+                metadata
+            )
+
+            # The integrity hash is now the checksum of the container before adding the checksum
+            integrity_hash = container_checksum
+
+            # Determine storage paths based on format
+            storage_paths = self._determine_storage_paths(file_id, storage_format)
+
+            # Store container (which now includes the checksum at the end)
+            self._write_container_to_storage(container_data, storage_paths, storage_format)
+
+            # Create metadata record
+            storage_metadata = StorageMetadata(
+                file_id=file_id,
+                original_name=original_name,
+                storage_format=storage_format,
+                compression_type=compression_type,
+                encryption_layers=metadata.get('encryption_layers', []),
+                total_size=len(container_data),
+                storage_paths=storage_paths,
+                checksum=integrity_hash,
+                timestamp=time.time(),
+                classification_level=metadata.get('classification_level', 3)
+            )
+
+            # Save metadata to database
+            self._save_metadata(storage_metadata)
+
+            # Log access
+            self.log_file_access(
+                file_id=file_id,
+                operation="STORE",
+                success=True,
+                user_id=actor,
+                metadata=storage_metadata,
+                message=f"Format: {storage_format.value}"
+            )
+
+            container = StorageContainer(
+                container_id=file_id,
+                container_data=container_data,
+                metadata=storage_metadata,
+                integrity_hash=integrity_hash
+            )
+
+            logger.info(f"Data stored successfully: {len(storage_paths)} locations")
+            return container
+
+        except Exception as exc:
+            self.log_file_access(
+                file_id=file_id,
+                operation="STORE",
+                success=False,
+                user_id=actor,
+                metadata=storage_metadata or metadata,
+                message=str(exc)
+            )
+            raise
     
     def _derive_storage_key(self, file_id: str) -> bytes:
         """Derive 512-bit storage encryption key from file ID"""
@@ -481,7 +512,9 @@ class SecureStorageEngine:
             with open(output_path, 'wb') as f:
                 f.write(hidden_data)
     
-    def retrieve_encrypted_data(self, file_id: str) -> Tuple[bytes, StorageMetadata]:
+    def retrieve_encrypted_data(self,
+                                file_id: str,
+                                user_id: Optional[str] = None) -> Tuple[bytes, StorageMetadata]:
         """
         Retrieve encrypted data from storage.
         
@@ -493,32 +526,53 @@ class SecureStorageEngine:
         """
         logger.info(f"Retrieving encrypted data: {file_id}")
         
-        # Load metadata from database
-        metadata = self._load_metadata(file_id)
-        if not metadata:
-            raise FileNotFoundError(f"File not found: {file_id}")
-        
-        # Read container from storage
-        container_data = self._read_container_from_storage(metadata)
-        
-        # Verify integrity
-        if not self._verify_container_integrity(container_data, metadata.checksum):
-            raise ValueError("Container integrity verification failed")
-        
-        # Decrypt container
-        decrypted_data = self._decrypt_storage_container(container_data, file_id)
-        
-        # Decompress if needed
-        final_data = self._decompress_data(decrypted_data, metadata.compression_type)
-        
-        # Update access statistics
-        self._update_access_stats(file_id)
-        
-        # Log access
-        self._log_access(file_id, "RETRIEVE", True, f"Size: {len(final_data)} bytes")
-        
-        logger.info(f"Data retrieved successfully: {len(final_data)} bytes")
-        return final_data, metadata
+        metadata: Optional[StorageMetadata] = None
+
+        try:
+            # Load metadata from database
+            metadata = self._load_metadata(file_id)
+            if not metadata:
+                raise FileNotFoundError(f"File not found: {file_id}")
+
+            # Read container from storage
+            container_data = self._read_container_from_storage(metadata)
+
+            # Verify integrity
+            if not self._verify_container_integrity(container_data, metadata.checksum):
+                raise ValueError("Container integrity verification failed")
+
+            # Decrypt container
+            decrypted_data = self._decrypt_storage_container(container_data, file_id)
+
+            # Decompress if needed
+            final_data = self._decompress_data(decrypted_data, metadata.compression_type)
+
+            # Update access statistics
+            self._update_access_stats(file_id)
+
+            # Log access
+            self.log_file_access(
+                file_id=file_id,
+                operation="RETRIEVE",
+                success=True,
+                user_id=user_id,
+                metadata=metadata,
+                message=f"Size: {len(final_data)} bytes"
+            )
+
+            logger.info(f"Data retrieved successfully: {len(final_data)} bytes")
+            return final_data, metadata
+
+        except Exception as exc:
+            self.log_file_access(
+                file_id=file_id,
+                operation="RETRIEVE",
+                success=False,
+                user_id=user_id,
+                metadata=metadata,
+                message=str(exc)
+            )
+            raise
     
     def _read_container_from_storage(self, metadata: StorageMetadata) -> bytes:
         """Read container from storage paths"""
@@ -767,14 +821,116 @@ class SecureStorageEngine:
             """, (time.time(), file_id))
             conn.commit()
     
+    def _resolve_user_id(self,
+                         metadata: Optional[Dict[str, Any]],
+                         explicit_user_id: Optional[str]) -> Optional[str]:
+        """Resolve the best-effort user identifier for logging."""
+        if explicit_user_id:
+            return explicit_user_id
+
+        if not metadata:
+            return None
+
+        for key in ("user_id", "created_by", "owner", "requested_by"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+        return None
+
+    def _metadata_snapshot_for_logging(
+        self,
+        metadata: Optional[Union[StorageMetadata, Dict[str, Any]]]
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a sanitized metadata snapshot for logging purposes."""
+        if metadata is None:
+            return None
+
+        if isinstance(metadata, StorageMetadata):
+            return {
+                'original_name': metadata.original_name,
+                'storage_format': metadata.storage_format.value,
+                'compression_type': metadata.compression_type.value,
+                'total_size': metadata.total_size,
+                'classification_level': metadata.classification_level,
+                'encryption_layers': list(metadata.encryption_layers),
+                'location_count': len(metadata.storage_paths)
+            }
+
+        if isinstance(metadata, dict):
+            snapshot: Dict[str, Any] = {}
+
+            if isinstance(metadata.get('original_name'), str):
+                snapshot['original_name'] = metadata['original_name']
+
+            if 'encryption_layers' in metadata:
+                try:
+                    snapshot['encryption_layers'] = list(metadata['encryption_layers'])
+                except TypeError:
+                    pass
+
+            if 'classification_level' in metadata:
+                snapshot['classification_level'] = metadata['classification_level']
+
+            storage_format = metadata.get('storage_format')
+            if isinstance(storage_format, StorageFormat):
+                snapshot['storage_format'] = storage_format.value
+
+            compression_type = metadata.get('compression_type')
+            if isinstance(compression_type, CompressionType):
+                snapshot['compression_type'] = compression_type.value
+
+            storage_paths = metadata.get('storage_paths')
+            if isinstance(storage_paths, (list, tuple)):
+                snapshot['location_count'] = len(storage_paths)
+
+            return snapshot or None
+
+        return None
+
+    def log_file_access(self,
+                        file_id: str,
+                        operation: str,
+                        success: bool,
+                        user_id: Optional[str] = None,
+                        metadata: Optional[Union[StorageMetadata, Dict[str, Any]]] = None,
+                        message: str = "") -> None:
+        """Record a file access event with sanitized metadata."""
+        details: Dict[str, Any] = {}
+
+        metadata_snapshot = self._metadata_snapshot_for_logging(metadata)
+        if metadata_snapshot:
+            details['metadata'] = metadata_snapshot
+
+        if message:
+            details['message'] = message
+
+        sanitized_details = sanitize_audit_details(details) if details else {}
+        serialized_details = json.dumps(sanitized_details, default=str) if sanitized_details else None
+
+        try:
+            with sqlite3.connect(self.metadata_db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO access_log (file_id, operation, timestamp, success, details, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (file_id, operation, time.time(), bool(success), serialized_details, user_id)
+                )
+                conn.commit()
+        except sqlite3.Error as exc:
+            logger.error(f"Failed to log file access for {file_id}: {exc}")
+
     def _log_access(self, file_id: str, operation: str, success: bool, details: str = ""):
-        """Log access attempt"""
-        with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                INSERT INTO access_log (file_id, operation, timestamp, success, details)
-                VALUES (?, ?, ?, ?, ?)
-            """, (file_id, operation, time.time(), success, details))
-            conn.commit()
+        """Backward-compatible wrapper for legacy calls."""
+        self.log_file_access(
+            file_id=file_id,
+            operation=operation,
+            success=success,
+            user_id=None,
+            metadata=None,
+            message=details
+        )
     
     def list_stored_files(self) -> List[StorageMetadata]:
         """List all stored files"""
@@ -801,17 +957,27 @@ class SecureStorageEngine:
             
             return files
     
-    def secure_delete_file(self, file_id: str) -> bool:
+    def secure_delete_file(self, file_id: str, user_id: Optional[str] = None) -> bool:
         """Securely delete file and all traces"""
         logger.info(f"Securely deleting file: {file_id}")
-        
+
+        metadata: Optional[StorageMetadata] = None
+
         try:
             # Load metadata
             metadata = self._load_metadata(file_id)
             if not metadata:
                 logger.warning(f"File not found for deletion: {file_id}")
+                self.log_file_access(
+                    file_id=file_id,
+                    operation="DELETE",
+                    success=False,
+                    user_id=user_id,
+                    metadata=None,
+                    message="File not found"
+                )
                 return False
-            
+
             # Securely delete storage files
             for path in metadata.storage_paths:
                 if os.path.exists(path):
@@ -823,16 +989,30 @@ class SecureStorageEngine:
                 conn.execute("DELETE FROM file_metadata WHERE file_id = ?", (file_id,))
                 conn.execute("DELETE FROM access_log WHERE file_id = ?", (file_id,))
                 conn.commit()
-            
+
             # Log deletion
-            self._log_access(file_id, "DELETE", True, "Secure deletion completed")
-            
+            self.log_file_access(
+                file_id=file_id,
+                operation="DELETE",
+                success=True,
+                user_id=user_id,
+                metadata=metadata,
+                message="Secure deletion completed"
+            )
+
             logger.info(f"File securely deleted: {file_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Secure deletion failed: {e}")
-            self._log_access(file_id, "DELETE", False, str(e))
+            self.log_file_access(
+                file_id=file_id,
+                operation="DELETE",
+                success=False,
+                user_id=user_id,
+                metadata=metadata,
+                message=str(e)
+            )
             return False
     
     def get_storage_statistics(self) -> Dict[str, Any]:
