@@ -6,10 +6,12 @@ This module implements the fifth and final layer: Secure storage with
 steganography, metadata protection, and distributed storage capabilities.
 """
 
+import io
 import os
 import time
 import struct
 import hashlib
+import stat
 from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -399,20 +401,18 @@ class SecureStorageEngine:
         
         return paths
     
-    def _write_container_to_storage(self, container_data: bytes, 
-                                  storage_paths: List[str], 
+    def _write_container_to_storage(self, container_data: bytes,
+                                  storage_paths: List[str],
                                   storage_format: StorageFormat):
         """Write container to storage locations"""
         if storage_format == StorageFormat.ENCRYPTED_CONTAINER:
             # Write single container
-            with open(storage_paths[0], 'wb') as f:
-                f.write(container_data)
-            os.chmod(storage_paths[0], 0o600)
-            
+            self._write_file(storage_paths[0], container_data)
+
         elif storage_format == StorageFormat.DISTRIBUTED_SHARES:
             # Split container into fragments
             fragment_size = len(container_data) // len(storage_paths)
-            
+
             for i, path in enumerate(storage_paths):
                 start_offset = i * fragment_size
                 if i == len(storage_paths) - 1:
@@ -420,11 +420,9 @@ class SecureStorageEngine:
                     fragment = container_data[start_offset:]
                 else:
                     fragment = container_data[start_offset:start_offset + fragment_size]
-                
-                with open(path, 'wb') as f:
-                    f.write(fragment)
-                os.chmod(path, 0o600)
-                
+
+                self._write_file(path, fragment)
+
         elif storage_format == StorageFormat.STEGANOGRAPHIC:
             # Hide in steganographic carrier
             self._create_steganographic_container(container_data, storage_paths[0])
@@ -462,7 +460,10 @@ class SecureStorageEngine:
             
             # Reshape and save
             hidden_image = flat_carrier.reshape((side_length, side_length, 3))
-            Image.fromarray(hidden_image).save(output_path, 'PNG')
+            image = Image.fromarray(hidden_image)
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG')
+            self._write_file(output_path, buffer.getvalue())
             
             logger.info(f"Steganographic container created: {output_path}")
             
@@ -478,8 +479,50 @@ class SecureStorageEngine:
                 if i < len(hidden_data):
                     hidden_data[i] ^= byte
             
-            with open(output_path, 'wb') as f:
-                f.write(hidden_data)
+            self._write_file(output_path, hidden_data)
+
+    def _write_file(self, path: Union[str, Path], data: bytes) -> None:
+        """Safely write data to disk with strict permissions."""
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        # Refuse to operate on existing symlinks
+        if os.path.lexists(path_obj):
+            existing_stat = os.lstat(path_obj)
+            if stat.S_ISLNK(existing_stat.st_mode):
+                raise RuntimeError(f"Refusing to write to symlinked path: {path_obj}")
+            path_obj.unlink()
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        mode = 0o600
+        path_str = os.fspath(path_obj)
+
+        fd = os.open(path_str, flags, mode)
+        data_view = None
+        try:
+            data_view = memoryview(data)
+            total_written = 0
+            while total_written < len(data_view):
+                written = os.write(fd, data_view[total_written:])
+                if written == 0:
+                    raise IOError(f"Failed to write data to {path_obj}")
+                total_written += written
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+            if data_view is not None:
+                data_view.release()
+
+        final_mode = stat.S_IMODE(os.stat(path_str, follow_symlinks=False).st_mode)
+        if final_mode != mode:
+            os.chmod(path_str, mode)
+            final_mode = stat.S_IMODE(os.stat(path_str, follow_symlinks=False).st_mode)
+
+        assert final_mode == mode, (
+            f"Secure write enforcement failed for {path_obj}: "
+            f"expected 0o600, got {oct(final_mode)}"
+        )
     
     def retrieve_encrypted_data(self, file_id: str) -> Tuple[bytes, StorageMetadata]:
         """
