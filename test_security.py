@@ -30,6 +30,9 @@ from custom_cipher import Cipher512
 import shutil
 import tempfile
 import time
+import json
+import sqlite3
+import tempfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +48,7 @@ from access_control import AccessControl, PermissionDeniedError
 from config import StorageConfig
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from storage_layer import SecureStorageEngine, StorageFormat
 from file_utils import SymlinkOpenError, safe_file_open
 from pin_manager import PINManager
 from file_utils import validate_storage_path
@@ -218,6 +222,20 @@ class TestCustomCipherCornerCases(unittest.TestCase):
                 self.assertNotEqual(blocks[i], blocks[j])
 
 
+class TestStorageAuditLogging(unittest.TestCase):
+    """Tests ensuring storage layer access logging works securely."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.engine = SecureStorageEngine(storage_dir=self.temp_dir.name)
+        self.file_id = "test-audit-file"
+        self.sample_data = b"important data"
+        self.metadata = {
+            'encryption_layers': ['layer1', 'layer2'],
+            'classification_level': 2,
+            'original_name': 'important.bin',
+            'created_by': 'test-user'
+        }
 class TestAuditLoggerSanitization(unittest.TestCase):
     """Tests to ensure audit logs never leak sensitive information."""
 
@@ -425,6 +443,77 @@ class TestStoragePathValidation(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def _fetch_access_logs(self):
+        db_path = os.path.join(self.temp_dir.name, "metadata.db")
+        with sqlite3.connect(db_path) as conn:
+            return conn.execute(
+                "SELECT operation, success, user_id, details FROM access_log ORDER BY id"
+            ).fetchall()
+
+    def _assert_sanitized_details(self, details_json: str):
+        if not details_json:
+            return
+
+        details = json.loads(details_json)
+        details_str = json.dumps(details)
+        self.assertNotIn(self.temp_dir.name, details_str)
+        self.assertNotIn("storage_paths", details_str)
+        self.assertNotIn("checksum", details_str.lower())
+
+        metadata = details.get("metadata")
+        if metadata:
+            self.assertEqual(
+                metadata.get("storage_format"),
+                StorageFormat.ENCRYPTED_CONTAINER.value
+            )
+            self.assertEqual(metadata.get("classification_level"), 2)
+            self.assertEqual(metadata.get("location_count"), 1)
+
+    def test_access_logging_for_store_retrieve_delete(self):
+        """Verify logging occurs for store, retrieve, and delete operations."""
+        container = self.engine.store_encrypted_data(
+            self.file_id,
+            self.sample_data,
+            self.metadata['original_name'],
+            self.metadata,
+            user_id="test-user"
+        )
+        self.assertIsNotNone(container)
+
+        logs_after_store = self._fetch_access_logs()
+        self.assertEqual(1, len(logs_after_store))
+        store_operation, store_success, store_user, store_details = logs_after_store[0]
+        self.assertEqual("STORE", store_operation)
+        self.assertTrue(bool(store_success))
+        self.assertEqual("test-user", store_user)
+        self._assert_sanitized_details(store_details)
+
+        retrieved_data, retrieved_metadata = self.engine.retrieve_encrypted_data(
+            self.file_id,
+            user_id="test-user"
+        )
+        self.assertEqual(self.sample_data, retrieved_data)
+        self.assertIsNotNone(retrieved_metadata)
+
+        logs_after_retrieve = self._fetch_access_logs()
+        self.assertEqual(2, len(logs_after_retrieve))
+        retrieve_operations = {entry[0] for entry in logs_after_retrieve}
+        self.assertSetEqual(retrieve_operations, {"STORE", "RETRIEVE"})
+        for entry in logs_after_retrieve:
+            self.assertTrue(bool(entry[1]))
+            self.assertEqual("test-user", entry[2])
+            self._assert_sanitized_details(entry[3])
+
+        delete_success = self.engine.secure_delete_file(self.file_id, user_id="test-user")
+        self.assertTrue(delete_success)
+
+        logs_after_delete = self._fetch_access_logs()
+        self.assertEqual(1, len(logs_after_delete))
+        delete_operation, delete_success_value, delete_user, delete_details = logs_after_delete[0]
+        self.assertEqual("DELETE", delete_operation)
+        self.assertTrue(bool(delete_success_value))
+        self.assertEqual("test-user", delete_user)
+        self._assert_sanitized_details(delete_details)
     def test_owner_has_full_control(self):
         for permission in PermissionLevel:
             self.assertTrue(
