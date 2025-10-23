@@ -12,13 +12,20 @@ This module contains comprehensive tests for all cryptographic primitives,
 with a focus on security properties and edge cases.
 """
 
-import unittest
 import os
+import shutil
+import tempfile
 import time
+import unittest
+from pathlib import Path
 from typing import List, Tuple
+
 import numpy as np
+
+from config import StorageConfig
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from file_utils import validate_storage_path
 
 class TestCustomCipherSecurity(unittest.TestCase):
     """Security tests for the custom 512-bit cipher"""
@@ -159,7 +166,7 @@ class TestCustomCipherSecurity(unittest.TestCase):
 
 class TestCustomCipherCornerCases(unittest.TestCase):
     """Tests for edge cases and corner cases"""
-    
+
     def setUp(self):
         """Set up test fixtures"""
         self.key = secure_random_bytes(64)  # 512-bit key
@@ -186,6 +193,60 @@ class TestCustomCipherCornerCases(unittest.TestCase):
         for i in range(len(blocks)):
             for j in range(i + 1, len(blocks)):
                 self.assertNotEqual(blocks[i], blocks[j])
+
+
+class TestStoragePathValidation(unittest.TestCase):
+    """Security tests for storage path validation helper."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_path = Path(self.temp_dir.name).resolve()
+        self.allowlist = [self.base_path]
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_allows_nested_directory(self):
+        """Nested directories within the allowlist should be accepted."""
+        nested = self.base_path / "nested" / "vault"
+        validated = validate_storage_path(nested, allowlist=self.allowlist)
+        self.assertEqual(validated, nested.resolve())
+
+    def test_rejects_traversal_outside_allowlist(self):
+        """Traversal attempts escaping the allowlist must be rejected."""
+        escape_path = self.base_path / ".." / "outside"
+        with self.assertRaises(ValueError):
+            validate_storage_path(escape_path, allowlist=self.allowlist)
+
+    def test_rejects_symlink_escape(self):
+        """Symlink-based escapes should be detected."""
+        outside_dir = Path(tempfile.mkdtemp())
+        symlink_path = self.base_path / "link"
+
+        try:
+            symlink_path.symlink_to(outside_dir)
+            with self.assertRaises(ValueError):
+                validate_storage_path(symlink_path / "nested", allowlist=self.allowlist)
+        finally:
+            symlink_path.unlink(missing_ok=True)
+            shutil.rmtree(outside_dir, ignore_errors=True)
+
+    def test_environment_allowlist_extension(self):
+        """Administrators can extend the allowlist via environment variable."""
+        extra_dir = Path(tempfile.mkdtemp())
+        env_key = StorageConfig.EXTRA_SAFE_DIRECTORIES_ENV
+        original_env = os.environ.get(env_key)
+
+        try:
+            os.environ[env_key] = str(extra_dir)
+            validated = validate_storage_path(extra_dir / "nested")
+            self.assertEqual(validated, (extra_dir / "nested").resolve())
+        finally:
+            if original_env is not None:
+                os.environ[env_key] = original_env
+            else:
+                os.environ.pop(env_key, None)
+            shutil.rmtree(extra_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

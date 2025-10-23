@@ -77,11 +77,27 @@ class AuthAttempt:
     attempt_id: int
     user_id: Optional[int]
     email_hash: Optional[bytes]
+    normalized_email_hash: Optional[bytes]
     timestamp: datetime
     success: bool
     attempt_type: str  # 'pin', 'password', 'recovery'
     ip_address: Optional[str]
+    user_agent: Optional[str]
+    device_fingerprint: Optional[str]
+    attempt_key: Optional[bytes]
     failure_reason: Optional[str]
+
+
+@dataclass
+class DeviceAttemptState:
+    """Aggregated device attempt metadata."""
+
+    attempt_key: bytes
+    attempt_count: int
+    first_attempt: datetime
+    last_attempt: datetime
+    captcha_required_until: Optional[datetime]
+    metadata: Dict[str, Any]
 
 
 class AuthDatabase:
@@ -254,14 +270,29 @@ class AuthDatabase:
                     attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     email_hash BLOB,
+                    normalized_email_hash BLOB,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     success BOOLEAN NOT NULL,
                     attempt_type TEXT NOT NULL,
                     ip_address TEXT,
+                    user_agent TEXT,
+                    device_fingerprint TEXT,
+                    attempt_key BLOB,
                     failure_reason TEXT,
 
                     CHECK (success IN (0, 1)),
                     CHECK (attempt_type IN ('pin', 'password', 'recovery'))
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS device_attempts (
+                    attempt_key BLOB PRIMARY KEY,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    first_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    captcha_required_until TIMESTAMP,
+                    metadata TEXT
                 )
             """)
 
@@ -283,6 +314,8 @@ class AuthDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_user_id ON auth_attempts(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_timestamp ON auth_attempts(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_hash ON auth_attempts(email_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_normalized_hash ON auth_attempts(normalized_email_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_attempt_key ON auth_attempts(attempt_key)")
 
             self._bind_instance_secret(cursor)
 
@@ -373,6 +406,34 @@ class AuthDatabase:
                         value TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            cursor.execute("PRAGMA table_info(auth_attempts)")
+            attempt_columns = {row[1] for row in cursor.fetchall()}
+
+            if "normalized_email_hash" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN normalized_email_hash BLOB")
+
+            if "user_agent" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN user_agent TEXT")
+
+            if "device_fingerprint" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN device_fingerprint TEXT")
+
+            if "attempt_key" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN attempt_key BLOB")
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_attempts'")
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE TABLE device_attempts (
+                        attempt_key BLOB PRIMARY KEY,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        first_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        captcha_required_until TIMESTAMP,
+                        metadata TEXT
                     )
                 """)
 
@@ -848,7 +909,12 @@ class AuthDatabase:
         success: bool,
         attempt_type: str,
         ip_address: Optional[str] = None,
-        failure_reason: Optional[str] = None
+        failure_reason: Optional[str] = None,
+        *,
+        normalized_email_hash: Optional[bytes] = None,
+        user_agent: Optional[str] = None,
+        device_fingerprint: Optional[str] = None,
+        attempt_key: Optional[bytes] = None,
     ) -> int:
         """
         Record authentication attempt.
@@ -868,9 +934,20 @@ class AuthDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO auth_attempts
-                (user_id, email_hash, success, attempt_type, ip_address, failure_reason)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, email_hash, success, attempt_type, ip_address, failure_reason))
+                (user_id, email_hash, normalized_email_hash, success, attempt_type, ip_address, user_agent, device_fingerprint, attempt_key, failure_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                email_hash,
+                normalized_email_hash,
+                success,
+                attempt_type,
+                ip_address,
+                user_agent,
+                device_fingerprint,
+                attempt_key,
+                failure_reason,
+            ))
 
             attempt_id = cursor.lastrowid
             conn.commit()
@@ -916,10 +993,14 @@ class AuthDatabase:
                     attempt_id=row['attempt_id'],
                     user_id=row['user_id'],
                     email_hash=row['email_hash'],
+                    normalized_email_hash=row['normalized_email_hash'],
                     timestamp=self._parse_datetime(row['timestamp']),
                     success=bool(row['success']),
                     attempt_type=row['attempt_type'],
                     ip_address=row['ip_address'],
+                    user_agent=row['user_agent'],
+                    device_fingerprint=row['device_fingerprint'],
+                    attempt_key=row['attempt_key'],
                     failure_reason=row['failure_reason']
                 ))
 
@@ -984,6 +1065,8 @@ class AuthDatabase:
         self,
         since: datetime,
         email_hash: Optional[bytes] = None,
+        attempt_key: Optional[bytes] = None,
+        normalized_email_hash: Optional[bytes] = None,
     ) -> List[AuthAttempt]:
         """Fetch failed authentication attempts within the provided window."""
 
@@ -998,6 +1081,14 @@ class AuthDatabase:
                 query.append("AND email_hash = ?")
                 params.append(email_hash)
 
+            if normalized_email_hash is not None:
+                query.append("AND normalized_email_hash = ?")
+                params.append(normalized_email_hash)
+
+            if attempt_key is not None:
+                query.append("AND attempt_key = ?")
+                params.append(attempt_key)
+
             query.append("ORDER BY timestamp ASC")
             cursor.execute(" ".join(query), params)
 
@@ -1010,15 +1101,128 @@ class AuthDatabase:
                         attempt_id=row['attempt_id'],
                         user_id=row['user_id'],
                         email_hash=row['email_hash'],
+                        normalized_email_hash=row['normalized_email_hash'],
                         timestamp=self._parse_datetime(row['timestamp']),
                         success=bool(row['success']),
                         attempt_type=row['attempt_type'],
                         ip_address=row['ip_address'],
+                        user_agent=row['user_agent'],
+                        device_fingerprint=row['device_fingerprint'],
+                        attempt_key=row['attempt_key'],
                         failure_reason=row['failure_reason'],
                     )
                 )
 
             return attempts
+
+    def update_device_attempt_counter(
+        self,
+        attempt_key: bytes,
+        *,
+        success: bool,
+        metadata: Optional[Dict[str, Any]] = None,
+        captcha_threshold: int = 0,
+        captcha_cooldown_seconds: int = 0,
+    ) -> DeviceAttemptState:
+        """Update per-device counters and persist captcha requirements."""
+
+        metadata_dict = metadata or {}
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM device_attempts WHERE attempt_key = ?",
+                (attempt_key,),
+            )
+            row = cursor.fetchone()
+
+            if success:
+                cursor.execute(
+                    "DELETE FROM device_attempts WHERE attempt_key = ?",
+                    (attempt_key,),
+                )
+                conn.commit()
+                return DeviceAttemptState(
+                    attempt_key=attempt_key,
+                    attempt_count=0,
+                    first_attempt=now,
+                    last_attempt=now,
+                    captcha_required_until=None,
+                    metadata=metadata_dict,
+                )
+
+            attempt_count = 0
+            first_attempt = now
+            captcha_required_until: Optional[datetime] = None
+            existing_metadata: Dict[str, Any] = {}
+
+            if row:
+                attempt_count = row['attempt_count']
+                first_attempt = self._parse_datetime(row['first_attempt']) or now
+                captcha_required_until = self._parse_datetime(row['captcha_required_until'])
+                existing_metadata = self._deserialize_metadata(row['metadata'])
+
+            attempt_count += 1
+            if captcha_threshold > 0 and attempt_count >= captcha_threshold:
+                captcha_required_until = now + timedelta(seconds=captcha_cooldown_seconds)
+
+            combined_metadata = existing_metadata.copy()
+            combined_metadata.update(metadata_dict)
+
+            cursor.execute(
+                """
+                INSERT INTO device_attempts
+                (attempt_key, attempt_count, first_attempt, last_attempt, captcha_required_until, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(attempt_key) DO UPDATE SET
+                    attempt_count=excluded.attempt_count,
+                    last_attempt=excluded.last_attempt,
+                    captcha_required_until=excluded.captcha_required_until,
+                    metadata=excluded.metadata
+                """,
+                (
+                    attempt_key,
+                    attempt_count,
+                    self._format_datetime(first_attempt),
+                    self._format_datetime(now),
+                    self._format_datetime(captcha_required_until) if captcha_required_until else None,
+                    self._serialize_metadata(combined_metadata),
+                ),
+            )
+            conn.commit()
+
+            return DeviceAttemptState(
+                attempt_key=attempt_key,
+                attempt_count=attempt_count,
+                first_attempt=first_attempt,
+                last_attempt=now,
+                captcha_required_until=captcha_required_until,
+                metadata=combined_metadata,
+            )
+
+    def get_device_attempt_state(self, attempt_key: bytes) -> Optional[DeviceAttemptState]:
+        """Return the persisted per-device attempt state."""
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM device_attempts WHERE attempt_key = ?",
+                (attempt_key,),
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return DeviceAttemptState(
+                attempt_key=row['attempt_key'],
+                attempt_count=row['attempt_count'],
+                first_attempt=self._parse_datetime(row['first_attempt']) or datetime.now(),
+                last_attempt=self._parse_datetime(row['last_attempt']) or datetime.now(),
+                captcha_required_until=self._parse_datetime(row['captcha_required_until']),
+                metadata=self._deserialize_metadata(row['metadata']),
+            )
 
     def _bind_instance_secret(self, cursor: sqlite3.Cursor) -> None:
         """Ensure the authentication database is bound to the guard secret."""
