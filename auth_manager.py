@@ -179,6 +179,9 @@ class AuthManager:
         email: str,
         pin: str,
         ip_address: Optional[str] = None,
+        *,
+        device_fingerprint: Optional[str] = None,
+        user_agent: Optional[str] = None,
         user_agent: Optional[str] = None
     ) -> AuthSession:
         """
@@ -200,6 +203,8 @@ class AuthManager:
             email: User's email address
             pin: User's PIN
             ip_address: IP address of login attempt (for logging)
+            device_fingerprint: Stable device identifier, if available
+            user_agent: Client user agent string, if available
             user_agent: User agent string of the client initiating login
 
         Returns:
@@ -212,16 +217,28 @@ class AuthManager:
         """
         email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
 
+        attempt_context = self.rate_limiter.build_attempt_context(
+            email=email,
+            email_hash=email_lookup_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+        )
+
         try:
-            self.rate_limiter.check_global_rate_limit(email_lookup_hash)
-        except RateLimitError as exc:
+            self.rate_limiter.check_global_rate_limit(attempt_context)
+        except RateLimitError:
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_lookup_hash,
                 success=False,
                 attempt_type='pin',
                 ip_address=ip_address,
-                failure_reason='device_rate_limited'
+                failure_reason='device_rate_limited',
+                normalized_email_hash=attempt_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=attempt_context.attempt_key,
             )
             raise
 
@@ -230,16 +247,28 @@ class AuthManager:
         if not user:
             # Don't reveal that user doesn't exist
             # Record attempt with email hash for tracking
-            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_lookup_hash,
                 success=False,
                 attempt_type='pin',
                 ip_address=ip_address,
-                failure_reason='invalid_email'
+                failure_reason='invalid_email',
+                normalized_email_hash=attempt_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=attempt_context.attempt_key,
             )
+            self.rate_limiter.record_device_attempt(False, attempt_context)
             raise InvalidCredentialsError("Invalid email or PIN")
+
+        user_context = self.rate_limiter.build_attempt_context(
+            email=email,
+            email_hash=user.email_lookup_hash or user.email_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+        )
 
         try:
             # Check rate limiting
@@ -253,8 +282,13 @@ class AuthManager:
                 success=False,
                 attempt_type='pin',
                 ip_address=ip_address,
-                failure_reason='rate_limited' if isinstance(e, RateLimitError) else 'account_locked'
+                failure_reason='rate_limited' if isinstance(e, RateLimitError) else 'account_locked',
+                normalized_email_hash=user_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=user_context.attempt_key,
             )
+            self.rate_limiter.record_device_attempt(False, user_context)
             raise
 
         # Get auth credentials
@@ -290,10 +324,15 @@ class AuthManager:
                     success=False,
                     attempt_type='pin',
                     ip_address=ip_address,
-                    failure_reason='invalid_pin'
+                    failure_reason='invalid_pin',
+                    normalized_email_hash=user_context.normalized_email_hash,
+                    user_agent=user_agent,
+                    device_fingerprint=device_fingerprint,
+                    attempt_key=user_context.attempt_key,
                 )
 
                 logger.warning(f"Failed PIN authentication for user {user.user_id}")
+                self.rate_limiter.record_device_attempt(False, user_context)
                 raise InvalidCredentialsError("Invalid email or PIN") from e
 
             # Verify master key with verification marker
@@ -363,8 +402,13 @@ class AuthManager:
                 success=True,
                 attempt_type='pin',
                 ip_address=ip_address,
-                failure_reason=None
+                failure_reason=None,
+                normalized_email_hash=user_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=user_context.attempt_key,
             )
+            self.rate_limiter.record_device_attempt(True, user_context)
 
             logger.info(f"Successful PIN authentication for user {user.user_id}")
             return session
@@ -379,7 +423,10 @@ class AuthManager:
         self,
         email: str,
         password: str,
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
+        *,
+        device_fingerprint: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> User:
         """
         Authenticate with email + password (for recovery/admin).
@@ -391,6 +438,8 @@ class AuthManager:
             email: User's email address
             password: User's password
             ip_address: IP address of login attempt
+            device_fingerprint: Stable device identifier, if available
+            user_agent: Client user agent string, if available
 
         Returns:
             User object
@@ -401,18 +450,39 @@ class AuthManager:
         """
         # Get user by email
         user = self.user_manager.get_user_by_email(email)
+        lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+        attempt_context = self.rate_limiter.build_attempt_context(
+            email=email,
+            email_hash=lookup_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+        )
+
         if not user:
             # Don't reveal that user doesn't exist
-            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
-                email_hash=email_hash,
+                email_hash=lookup_hash,
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,
-                failure_reason='invalid_email'
+                failure_reason='invalid_email',
+                normalized_email_hash=attempt_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=attempt_context.attempt_key,
             )
+            self.rate_limiter.record_device_attempt(False, attempt_context)
             raise InvalidCredentialsError("Invalid email or password")
+
+        user_context = self.rate_limiter.build_attempt_context(
+            email=email,
+            email_hash=user.email_lookup_hash or user.email_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+        )
 
         # Check rate limiting
         try:
@@ -424,8 +494,13 @@ class AuthManager:
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,
-                failure_reason='rate_limited' if isinstance(e, RateLimitError) else 'account_locked'
+                failure_reason='rate_limited' if isinstance(e, RateLimitError) else 'account_locked',
+                normalized_email_hash=user_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=user_context.attempt_key,
             )
+            self.rate_limiter.record_device_attempt(False, user_context)
             raise
 
         # Verify password
@@ -438,10 +513,15 @@ class AuthManager:
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,
-                failure_reason='invalid_password'
+                failure_reason='invalid_password',
+                normalized_email_hash=user_context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=user_context.attempt_key,
             )
 
             logger.warning(f"Failed password authentication for user {user.user_id}")
+            self.rate_limiter.record_device_attempt(False, user_context)
             raise InvalidCredentialsError("Invalid email or password")
 
         # Authentication successful
@@ -453,8 +533,13 @@ class AuthManager:
             success=True,
             attempt_type='password',
             ip_address=ip_address,
-            failure_reason=None
+            failure_reason=None,
+            normalized_email_hash=user_context.normalized_email_hash,
+            user_agent=user_agent,
+            device_fingerprint=device_fingerprint,
+            attempt_key=user_context.attempt_key,
         )
+        self.rate_limiter.record_device_attempt(True, user_context)
 
         logger.info(f"Successful password authentication for user {user.user_id}")
         return user
