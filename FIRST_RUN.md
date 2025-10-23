@@ -46,6 +46,8 @@ The following files should **never** be committed to git or copied between insta
 
 These are security-sensitive files unique to each installation.
 
+> **Important:** SecureVault now treats the guard state file as mandatory once the authentication database has been provisioned. If `instance_state.json` is deleted while `users.db` (or any other authentication database) remains, the application will immediately enter lockdown and require manual recovery.
+
 ## Development/Testing
 
 If you're a developer and need to frequently reset the system:
