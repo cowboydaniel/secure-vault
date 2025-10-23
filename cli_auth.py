@@ -199,3 +199,13 @@ class CLIAuthenticator:
             "CLI authentication failure",
             {"email_hash": email_hash, "reason": reason, "message": message},
         )
+
+        if hasattr(self.auth_manager, "auth_queue"):
+            snapshot = self.auth_manager.auth_queue.snapshot()
+            logger.info(
+                "Auth queue snapshot after failure: total=%d max_wait=%.3fs max_depth=%d current_waiters=%d",
+                snapshot.total_requests,
+                snapshot.max_wait_time,
+                snapshot.max_queue_depth,
+                snapshot.current_waiters,
+            )
