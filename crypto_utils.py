@@ -29,42 +29,11 @@ logger = logging.getLogger(__name__)
 # =====================================================
 
 def secure_random_bytes(length: int) -> bytes:
-    """
-    Generate cryptographically secure random bytes.
-    
-    Args:
-        length: Number of random bytes to generate
-        
-    Returns:
-        Cryptographically secure random bytes
-    """
+    """Return cryptographically secure random bytes from the OS RNG."""
     if length <= 0:
         raise ValueError("Length must be positive")
-    
-    # Use OS random number generator
-    random_bytes = os.urandom(length)
-    
-    # Additional entropy mixing for 512-bit operations
-    if length >= SECURITY_LEVEL_BYTES:
-        # Mix with high-resolution time for additional entropy
-        time_bytes = struct.pack('>d', time.time())
-        process_bytes = struct.pack('>I', os.getpid())
-        
-        # Create entropy pool
-        entropy_data = random_bytes + time_bytes + process_bytes
-        
-        # Hash to ensure uniform distribution
-        mixed_entropy = compute_sha3_512(entropy_data)
-        
-        if length == SECURITY_LEVEL_BYTES:
-            return mixed_entropy
-        elif length > SECURITY_LEVEL_BYTES:
-            # For larger requests, use HKDF to expand
-            return expand_key_material(mixed_entropy, length)
-        else:
-            return mixed_entropy[:length]
-    
-    return random_bytes
+
+    return os.urandom(length)
 
 def generate_512bit_key() -> bytes:
     """Generate a 512-bit (64-byte) cryptographic key"""

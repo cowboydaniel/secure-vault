@@ -62,6 +62,15 @@ class InstanceGuard:
             self._fresh_state = False
             return data
 
+        if self._database_has_prior_state():
+            logger.error(
+                "Instance guard state missing while authentication database %s persists",
+                self.db_path,
+            )
+            raise TamperDetectedError(
+                "Authentication guard state missing; manual recovery is required."
+            )
+
         secret_bytes = secrets.token_bytes(32)
         state = {
             "instance_id": secrets.token_hex(16),
@@ -73,6 +82,21 @@ class InstanceGuard:
         self._write_state(state)
         self._fresh_state = True
         return state
+
+    def _database_has_prior_state(self) -> bool:
+        """Return ``True`` when the database indicates a previous installation."""
+
+        try:
+            if not self.db_path.exists():
+                return False
+
+            # An empty file may appear during initial provisioning. Treat non-empty
+            # databases as an indication of prior state to avoid silent resets.
+            return self.db_path.stat().st_size > 0
+        except OSError:  # pragma: no cover - defensive
+            # Err on the side of caution by assuming prior state when the database
+            # cannot be inspected.
+            return True
 
     def _write_state(self, state: Dict[str, Any]) -> None:
         tmp_path = self.state_path.with_suffix(".tmp")

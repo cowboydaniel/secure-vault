@@ -62,7 +62,22 @@ class MainWindow(QMainWindow):
         self.theme_manager.set_theme(self.settings.get('app', {}).get('theme', 'dark'))
 
         # Initialize clipboard security
-        self.clipboard_manager = ClipboardSecurityManager(timeout_ms=30000, parent=self)
+        clipboard_prefs = self.settings.get('app', {})
+        timeout_value = clipboard_prefs.get('clipboard_clear_time', 30)
+        try:
+            timeout_seconds = float(timeout_value)
+        except (TypeError, ValueError):
+            timeout_seconds = 30.0
+
+        self.clipboard_manager = ClipboardSecurityManager(
+            timeout_ms=int(timeout_seconds * 1000),
+            parent=self,
+        )
+
+        if not clipboard_prefs.get('clear_clipboard', True):
+            self.clipboard_manager.disable_auto_clear()
+
+        self.secure_clipboard = self.clipboard_manager.secure_clipboard
 
         # Initialize system tray (if available)
         self.system_tray = None
