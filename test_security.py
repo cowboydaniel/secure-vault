@@ -13,6 +13,20 @@ with a focus on security properties and edge cases.
 """
 
 import os
+import tempfile
+import time
+import unittest
+
+import numpy as np
+
+from audit_logger import (
+    AuditEventType,
+    AuditLogger,
+    AuditSeverity,
+    REDACTED_PLACEHOLDER,
+)
+from crypto_utils import secure_random_bytes
+from custom_cipher import Cipher512
 import shutil
 import tempfile
 import time
@@ -173,29 +187,30 @@ class TestCustomCipherSecurity(unittest.TestCase):
 
 
 class TestCustomCipherCornerCases(unittest.TestCase):
+    """Tests for edge cases and corner cases."""
     """Tests for edge cases and corner cases"""
 
     def setUp(self):
-        """Set up test fixtures"""
+        """Set up test fixtures."""
         self.key = secure_random_bytes(64)  # 512-bit key
         self.iv = secure_random_bytes(64)   # 512-bit IV
         self.cipher = Cipher512()
         self.context = self.cipher.create_context(self.key, self.iv)
-    
+
     def test_empty_plaintext(self):
-        """Test encryption/decryption with empty plaintext"""
+        """Test encryption/decryption with empty plaintext."""
         empty = b""
         ciphertext = self.cipher.encrypt(empty, self.context)
         decrypted = self.cipher.decrypt(ciphertext, self.context)
         self.assertEqual(empty, decrypted)
-        
+
     def test_repeated_blocks(self):
-        """Test that repeated plaintext blocks result in different ciphertext blocks"""
+        """Test that repeated plaintext blocks result in different ciphertext blocks."""
         block = b"A" * 64
         repeated = block * 3
-        
+
         ciphertext = self.cipher.encrypt(repeated, self.context)
-        
+
         # Check that no two blocks in the ciphertext are identical
         blocks = [ciphertext[i:i+64] for i in range(0, len(ciphertext), 64)]
         for i in range(len(blocks)):
@@ -203,6 +218,58 @@ class TestCustomCipherCornerCases(unittest.TestCase):
                 self.assertNotEqual(blocks[i], blocks[j])
 
 
+class TestAuditLoggerSanitization(unittest.TestCase):
+    """Tests to ensure audit logs never leak sensitive information."""
+
+    def test_log_entries_are_sanitized(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = os.path.join(tmpdir, 'logs')
+            logger = AuditLogger(
+                log_dir=log_dir,
+                max_log_size=1024,
+                max_backups=2,
+                enable_tamper_detection=True,
+            )
+            logger.log_event(
+                AuditEventType.AUTH_SUCCESS,
+                AuditSeverity.INFO,
+                "User authenticated",
+                {
+                    'pin': '1234',
+                    'key_material': 'deadbeef',
+                    'identifier': 'user-123',
+                    'nested': {'api_key': 'nested-secret', 'allowed': 'metadata'},
+                },
+                user_id='user-123',
+                source_ip='192.168.1.25',
+            )
+
+            events = logger.query_events()
+            auth_events = [
+                event for event in events
+                if event['event_type'] == AuditEventType.AUTH_SUCCESS.value
+            ]
+            self.assertTrue(auth_events, 'Audit log did not record authentication event')
+            event = auth_events[0]
+            details = event['details']
+
+            self.assertEqual(details['pin'], REDACTED_PLACEHOLDER)
+            self.assertEqual(details['key_material'], REDACTED_PLACEHOLDER)
+            self.assertEqual(details['identifier'], REDACTED_PLACEHOLDER)
+            self.assertEqual(details['nested']['api_key'], REDACTED_PLACEHOLDER)
+            self.assertEqual(details['nested']['allowed'], 'metadata')
+            self.assertIn('event_hash', details)
+
+            self.assertNotEqual(event['user_id'], 'user-123')
+            self.assertNotEqual(event['session_id'], logger._session_id)
+            self.assertNotEqual(event['source_ip'], '192.168.1.25')
+            self.assertTrue(event['session_id'])
+
+            if os.name == 'posix':
+                mode = os.stat(log_dir).st_mode & 0o777
+                self.assertEqual(mode, 0o700)
+
+            logger.close()
 class TestErrorHandlingSanitization(unittest.TestCase):
     """Ensure centralized error handling redacts sensitive data."""
 
