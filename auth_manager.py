@@ -15,7 +15,7 @@ This module provides the high-level authentication API used by the GUI and CLI.
 import os
 import uuid
 import logging
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Tuple, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
@@ -25,6 +25,7 @@ from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
 from instance_guard import TamperDetectedError
+from audit_logger import AuditEventType, AuditSeverity, get_audit_logger
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,10 @@ class SystemLockdownError(AuthenticationError):
     pass
 
 
+class SessionHijackingError(AuthenticationError):
+    """Raised when session client metadata does not match expectations."""
+
+
 class AuthSession:
     """
     Active authentication session.
@@ -71,7 +76,9 @@ class AuthSession:
         user_id: int,
         master_key: Union[bytes, bytearray],
         created_at: datetime,
-        expires_at: datetime
+        expires_at: datetime,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
     ):
         """
         Initialize authentication session.
@@ -89,6 +96,8 @@ class AuthSession:
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
+        self.ip_address = ip_address
+        self.user_agent = user_agent
 
     def get_master_key(self) -> bytes:
         """
@@ -169,7 +178,8 @@ class AuthManager:
         self,
         email: str,
         pin: str,
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
     ) -> AuthSession:
         """
         Authenticate user with email + PIN.
@@ -190,6 +200,7 @@ class AuthManager:
             email: User's email address
             pin: User's PIN
             ip_address: IP address of login attempt (for logging)
+            user_agent: User agent string of the client initiating login
 
         Returns:
             AuthSession with decrypted master key
@@ -335,7 +346,12 @@ class AuthManager:
                 user.email_salt = new_email_salt
 
             # Create session
-            session = self._create_session(user.user_id, master_key, ip_address)
+            session = self._create_session(
+                user.user_id,
+                master_key,
+                ip_address,
+                user_agent,
+            )
 
             # Update last login
             self.db.update_last_login(user.user_id)
@@ -447,7 +463,8 @@ class AuthManager:
         self,
         user_id: int,
         master_key: Union[bytes, bytearray],
-        ip_address: Optional[str] = None
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
     ) -> AuthSession:
         """
         Create new authentication session.
@@ -456,10 +473,17 @@ class AuthManager:
             user_id: User ID
             master_key: Decrypted master vault key
             ip_address: IP address
+            user_agent: User agent string describing the client
 
         Returns:
             AuthSession
         """
+        # Normalize metadata to ensure consistent comparisons
+        normalized_ip, normalized_user_agent = self._normalize_client_metadata(
+            ip_address,
+            user_agent,
+        )
+
         # Generate unique session ID
         session_id = str(uuid.uuid4())
 
@@ -472,7 +496,8 @@ class AuthManager:
             session_id=session_id,
             user_id=user_id,
             expires_at=expires_at,
-            ip_address=ip_address
+            ip_address=normalized_ip,
+            user_agent=normalized_user_agent,
         )
 
         # Create in-memory session with master key
@@ -481,7 +506,9 @@ class AuthManager:
             user_id=user_id,
             master_key=master_key,
             created_at=created_at,
-            expires_at=expires_at
+            expires_at=expires_at,
+            ip_address=normalized_ip,
+            user_agent=normalized_user_agent,
         )
 
         self._sessions[session_id] = session
@@ -489,30 +516,73 @@ class AuthManager:
         logger.info(f"Created session {session_id} for user {user_id}")
         return session
 
-    def get_session(self, session_id: str) -> Optional[AuthSession]:
+    def get_session(
+        self,
+        session_id: str,
+        ip_address: str,
+        user_agent: str
+    ) -> Optional[AuthSession]:
         """
         Get active session by ID.
 
         Args:
             session_id: Session ID
+            ip_address: IP address presented with the request
+            user_agent: User agent presented with the request
 
         Returns:
             AuthSession or None if not found/expired
 
         Raises:
             SessionExpiredError: Session has expired
+            SessionHijackingError: Client metadata does not match expectations
         """
+        normalized_ip, normalized_user_agent = self._normalize_client_metadata(
+            ip_address,
+            user_agent,
+        )
+
         session = self._sessions.get(session_id)
+        db_session = self.db.get_session(session_id)
 
-        if not session:
-            # Check if session exists in database
-            db_session = self.db.get_session(session_id)
-            if not db_session:
-                return None
+        if session is None and db_session is None:
+            return None
 
+        if session is None and db_session is not None:
             # Session exists in DB but not in memory (e.g., after restart)
             # User needs to re-authenticate
             raise SessionExpiredError("Session expired - please log in again")
+
+        if session is not None and db_session is None:
+            # Database state no longer has the session, treat as expired
+            self.logout(session_id)
+            raise SessionExpiredError("Session has expired")
+
+        assert session is not None and db_session is not None
+
+        stored_ip, stored_user_agent = self._normalize_client_metadata(
+            db_session.ip_address,
+            db_session.user_agent,
+        )
+
+        if stored_ip != normalized_ip or stored_user_agent != normalized_user_agent:
+            audit_logger = get_audit_logger()
+            audit_logger.log_event(
+                AuditEventType.SUSPICIOUS_ACTIVITY,
+                AuditSeverity.CRITICAL,
+                "Session client metadata mismatch detected",
+                {
+                    "session_id": session_id,
+                    "expected_ip": stored_ip,
+                    "presented_ip": normalized_ip,
+                    "expected_user_agent": stored_user_agent,
+                    "presented_user_agent": normalized_user_agent,
+                },
+                user_id=str(db_session.user_id),
+                source_ip=normalized_ip,
+            )
+            self.logout(session_id)
+            raise SessionHijackingError("Session client metadata mismatch detected")
 
         # Check if expired
         if session.is_expired():
@@ -530,6 +600,31 @@ class AuthManager:
         self.db.update_session_activity(session_id)
 
         return session
+
+    @staticmethod
+    def _normalize_client_metadata(
+        ip_address: Optional[str],
+        user_agent: Optional[str]
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Normalize client metadata for consistent storage and comparison."""
+
+        def normalize_ip(value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return None
+            normalized = value.strip()
+            if not normalized:
+                return None
+            return normalized.lower()
+
+        def normalize_user_agent(value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return None
+            normalized = " ".join(value.strip().split())
+            if not normalized:
+                return None
+            return normalized
+
+        return normalize_ip(ip_address), normalize_user_agent(user_agent)
 
     def logout(self, session_id: str) -> None:
         """

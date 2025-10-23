@@ -7,7 +7,11 @@ import unittest
 from pathlib import Path
 
 from auth_database import AuthDatabase
-from auth_manager import AuthManager, InvalidCredentialsError
+from auth_manager import (
+    AuthManager,
+    InvalidCredentialsError,
+    SessionHijackingError,
+)
 from instance_guard import InstanceGuard, TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
@@ -86,7 +90,14 @@ class AuthenticationTestCase(unittest.TestCase):
         self.assertEqual('argon2id', db_user.password_kdf)
         self.assertIn('time_cost', db_user.password_kdf_metadata)
 
-        session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
+        login_ip = " 198.51.100.5 "
+        login_user_agent = " SecureVaultTest/1.0 "
+        session = self.auth_manager.authenticate_with_pin(
+            email=email,
+            pin=pin,
+            ip_address=login_ip,
+            user_agent=login_user_agent,
+        )
         self.assertIsNotNone(session)
         self.assertEqual(user_id, session.user_id)
         self.assertEqual(32, len(session.get_master_key()))
@@ -96,7 +107,13 @@ class AuthenticationTestCase(unittest.TestCase):
         self.assertIn('memory_cost', credentials.kdf_metadata)
 
         # Session should remain retrievable until logout
-        retrieved = self.auth_manager.get_session(session.session_id)
+        normalized_ip = "198.51.100.5"
+        normalized_user_agent = "SecureVaultTest/1.0"
+        retrieved = self.auth_manager.get_session(
+            session.session_id,
+            normalized_ip,
+            normalized_user_agent,
+        )
         self.assertIsNotNone(retrieved)
 
         stored_session = self.db.get_session(session.session_id)
@@ -104,9 +121,56 @@ class AuthenticationTestCase(unittest.TestCase):
         self.assertNotEqual(stored_session.session_id, session.session_id)
         self.assertEqual(64, len(stored_session.session_id))
         self.assertNotIn('-', stored_session.session_id)
+        self.assertEqual(normalized_ip, stored_session.ip_address)
+        self.assertEqual(normalized_user_agent, stored_session.user_agent)
 
         self.auth_manager.logout(session.session_id)
-        self.assertIsNone(self.auth_manager.get_session(session.session_id))
+        self.assertIsNone(
+            self.auth_manager.get_session(
+                session.session_id,
+                normalized_ip,
+                normalized_user_agent,
+            )
+        )
+
+    def test_detects_session_client_metadata_mismatch(self) -> None:
+        """Session retrieval should fail if client metadata changes."""
+
+        email = "carol@example.com"
+        password = "Sup3rSecurePass!"
+        pin = "123789"
+        ip_address = "203.0.113.9"
+        user_agent = "SecureVaultTest/2.0"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+        session = self.auth_manager.authenticate_with_pin(
+            email=email,
+            pin=pin,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        # Baseline retrieval succeeds with matching metadata
+        self.assertIsNotNone(
+            self.auth_manager.get_session(session.session_id, ip_address, user_agent)
+        )
+
+        # Mismatched metadata should trigger hijacking detection
+        with self.assertRaises(SessionHijackingError):
+            self.auth_manager.get_session(
+                session.session_id,
+                "198.51.100.23",
+                user_agent,
+            )
+
+        # Session should no longer be retrievable after hijacking detection
+        self.assertIsNone(
+            self.auth_manager.get_session(
+                session.session_id,
+                ip_address,
+                user_agent,
+            )
+        )
 
     def test_rate_limiter_enforces_lockout(self) -> None:
         """Repeated invalid attempts trigger an account lockout."""
