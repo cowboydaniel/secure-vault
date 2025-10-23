@@ -9,7 +9,7 @@ ensuring consistent 512-bit security standards throughout.
 import os
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 # 512-bit Security Standards
 SECURITY_LEVEL_BITS = 512
@@ -67,8 +67,35 @@ class StorageConfig:
     SHARE_EXTENSION = ".share"
     METADATA_EXTENSION = ".meta"
     DEFAULT_STORAGE_DIR = os.path.expanduser("~/secure_vault")
+    SAFE_STORAGE_DIRECTORIES = [
+        DEFAULT_STORAGE_DIR,
+        os.path.expanduser("~/.secure_vault"),
+    ]
+    EXTRA_SAFE_DIRECTORIES: List[str] = []
+    EXTRA_SAFE_DIRECTORIES_ENV = "SECURE_VAULT_EXTRA_SAFE_DIRS"
     MAX_FILE_SIZE_GB = 100        # Maximum file size for processing
     COMPRESSION_ENABLED = True    # Pre-encryption compression
+
+    @classmethod
+    def get_allowlisted_directories(cls) -> List[str]:
+        """Return all configured storage directories considered safe."""
+        allowlist: List[str] = []
+        for path in cls.SAFE_STORAGE_DIRECTORIES + cls.EXTRA_SAFE_DIRECTORIES:
+            expanded = os.path.abspath(os.path.expanduser(path))
+            if expanded not in allowlist:
+                allowlist.append(expanded)
+
+        env_paths = os.environ.get(cls.EXTRA_SAFE_DIRECTORIES_ENV, "")
+        if env_paths:
+            for raw_path in env_paths.split(os.pathsep):
+                cleaned = raw_path.strip()
+                if not cleaned:
+                    continue
+                expanded = os.path.abspath(os.path.expanduser(cleaned))
+                if expanded not in allowlist:
+                    allowlist.append(expanded)
+
+        return allowlist
 
 # Security and OPSEC
 class SecurityConfig:
