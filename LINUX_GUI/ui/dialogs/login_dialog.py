@@ -23,6 +23,7 @@ from auth_manager import AuthManager, AuthSession, InvalidCredentialsError
 from rate_limiter import AccountLockedError, RateLimitError
 from secure_memory import secure_wipe
 from LINUX_GUI.utils import safe_set_text
+from LINUX_GUI.widgets import AccessiblePinPad
 
 
 logger = logging.getLogger(__name__)
@@ -57,14 +58,26 @@ class LoginDialog(QDialog):
         form = QFormLayout()
         self.email_edit = QLineEdit()
         self.email_edit.setPlaceholderText("name@example.com")
+        self.email_edit.setAccessibleName("Email address")
+        self.email_edit.setAccessibleDescription("Enter the email address associated with your SecureVault account.")
 
         self.pin_edit = QLineEdit()
         self.pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.pin_edit.setMaxLength(8)
+        self.pin_edit.setAccessibleName("PIN entry")
+        self.pin_edit.setAccessibleDescription(
+            "Enter your SecureVault PIN. You can also use the on-screen keypad below."
+        )
 
         form.addRow("Email:", self.email_edit)
         form.addRow("PIN:", self.pin_edit)
         layout.addLayout(form)
+
+        self.pin_pad = AccessiblePinPad(self)
+        self.pin_pad.digit_pressed.connect(self._handle_pin_digit)
+        self.pin_pad.backspace_pressed.connect(self._handle_pin_backspace)
+        self.pin_pad.clear_pressed.connect(self.pin_edit.clear)
+        layout.addWidget(self.pin_pad)
 
         self.error_label = QLabel()
         self.error_label.setObjectName("authErrorLabel")
@@ -190,6 +203,16 @@ class LoginDialog(QDialog):
                 safe_set_text(self.email_edit, dialog.email_edit.text())
             self.pin_edit.clear()
             self.pin_edit.setFocus()
+
+    def _handle_pin_digit(self, digit: str) -> None:
+        if len(self.pin_edit.text()) >= self.pin_edit.maxLength():
+            return
+        self.pin_edit.insert(digit)
+
+    def _handle_pin_backspace(self) -> None:
+        text = self.pin_edit.text()
+        if text:
+            self.pin_edit.setText(text[:-1])
 
     @staticmethod
     def _wipe_secret(pin: Optional[str]) -> None:

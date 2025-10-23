@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -20,8 +21,9 @@ from audit_logger import AuditEventType, AuditLogger, AuditSeverity, get_audit_l
 from auth_manager import AuthManager
 from pin_manager import PINValidationError
 from secure_memory import secure_wipe
-from user_manager import UserManager, ValidationError
+from user_manager import UserManager, ValidationError, validate_email
 from LINUX_GUI.utils import safe_set_text
+from recovery_manager import RecoveryManager
 
 
 logger = logging.getLogger(__name__)
@@ -35,12 +37,15 @@ class AccountRecoveryDialog(QDialog):
         auth_manager: AuthManager,
         audit_logger: Optional[AuditLogger] = None,
         parent=None,
+        recovery_manager: Optional[RecoveryManager] = None,
     ) -> None:
         super().__init__(parent)
         self.auth_manager = auth_manager
         self.user_manager: UserManager = auth_manager.user_manager
         self.audit_logger = audit_logger or get_audit_logger()
+        self.recovery_manager = recovery_manager or RecoveryManager()
         self._recovery_successful = False
+        self._last_code: Optional[str] = None
 
         self.setWindowTitle("Account Recovery")
         self.setModal(True)
@@ -86,6 +91,15 @@ class AccountRecoveryDialog(QDialog):
 
         form.addRow("Email:", self.email_edit)
         form.addRow("Password:", self.password_edit)
+
+        self.send_code_btn = QPushButton("Send verification code")
+        self.send_code_btn.clicked.connect(self._on_send_code)
+        form.addRow("", self.send_code_btn)
+
+        self.verification_code_edit = QLineEdit()
+        self.verification_code_edit.setMaxLength(6)
+        self.verification_code_edit.setPlaceholderText("6-digit code")
+        form.addRow("Verification Code:", self.verification_code_edit)
         form.addRow("New PIN:", self.new_pin_edit)
         form.addRow("Confirm New PIN:", self.confirm_pin_edit)
         layout.addLayout(form)
@@ -97,6 +111,13 @@ class AccountRecoveryDialog(QDialog):
         self.error_label.setStyleSheet("color: #d9534f;")
         self.error_label.setVisible(False)
         layout.addWidget(self.error_label)
+
+        # Verification status
+        self.code_status_label = QLabel()
+        self.code_status_label.setWordWrap(True)
+        self.code_status_label.setStyleSheet("color: #2d7dd2;")
+        self.code_status_label.setVisible(False)
+        layout.addWidget(self.code_status_label)
 
         # Buttons
         buttons = QDialogButtonBox(
@@ -128,6 +149,11 @@ class AccountRecoveryDialog(QDialog):
             self._show_error("PIN entries do not match.")
             return
 
+        verification_code = self.verification_code_edit.text().strip()
+        if not verification_code:
+            self._show_error("Verification code is required.")
+            return
+
         try:
             # Get user by email
             user = self.user_manager.get_user_by_email(email)
@@ -152,6 +178,11 @@ class AccountRecoveryDialog(QDialog):
             if confirm != QMessageBox.StandardButton.Yes:
                 return
 
+            if not self.recovery_manager.verify_code(email, verification_code):
+                self._show_error("Invalid or expired verification code.")
+                self._log_failure(email, "verification_failed")
+                return
+
             # Reset PIN
             self.user_manager.reset_pin(
                 user_id=user.user_id,
@@ -166,6 +197,8 @@ class AccountRecoveryDialog(QDialog):
                 {"email_hash": user.email_hash.hex()},
                 user_id=str(user.user_id),
             )
+
+            self.recovery_manager.clear_code(email)
 
             self._recovery_successful = True
 
@@ -201,6 +234,7 @@ class AccountRecoveryDialog(QDialog):
     def _show_error(self, message: str) -> None:
         safe_set_text(self.error_label, message)
         self.error_label.setVisible(True)
+        self.code_status_label.setVisible(False)
 
     def _log_failure(self, email: str, reason: str) -> None:
         try:
@@ -213,6 +247,33 @@ class AccountRecoveryDialog(QDialog):
             AuditSeverity.WARNING,
             "PIN recovery attempt failed",
             {"email_hash": email_hash, "reason": reason},
+        )
+
+    def _on_send_code(self) -> None:
+        email = self.email_edit.text().strip()
+        if not email:
+            self._show_error("Enter your email before requesting a code.")
+            return
+
+        try:
+            normalized = validate_email(email)
+        except ValidationError as exc:
+            self._show_error(str(exc))
+            return
+
+        code = self.recovery_manager.issue_code(normalized)
+        self._last_code = code
+        self.code_status_label.setVisible(True)
+        safe_set_text(
+            self.code_status_label,
+            "A verification code was sent to your registered email address.",
+        )
+        self.error_label.setVisible(False)
+        self.audit_logger.log_event(
+            AuditEventType.SECURITY_NOTIFICATION,
+            AuditSeverity.INFO,
+            "Recovery verification code issued",
+            {"email": normalized},
         )
 
     @staticmethod
