@@ -50,14 +50,14 @@ class AccountRecoveryDialog(QDialog):
         header = QLabel(
             "<h3>Reset Your PIN</h3>"
             "<p>If you've forgotten your PIN, you can reset it using your email and password.</p>"
-            "<p><strong style='color: #ff4444;'>⚠️ CRITICAL WARNING:</strong></p>"
+            "<p><strong style='color: #ff4444;'>⚠️ WARNING - Data Loss:</strong></p>"
             "<ul>"
-            "<li><strong style='color: #ff4444;'>You will LOSE ACCESS to all currently encrypted files</strong></li>"
-            "<li>A new master encryption key will be generated</li>"
-            "<li>The old master key cannot be recovered without the old PIN</li>"
-            "<li>This is a security design trade-off, not a bug</li>"
+            "<li><strong>Secure Notes will be LOST</strong> - All notes encrypted with your current PIN will become inaccessible</li>"
+            "<li><strong>File Encryption is NOT affected</strong> - Files encrypted with the 5-layer system use independent keys</li>"
+            "<li>A new vault master key will be generated</li>"
+            "<li>The old vault key cannot be recovered without the old PIN</li>"
             "</ul>"
-            "<p><strong>Before proceeding:</strong> Backup any encrypted files you want to keep and decrypt them with your old PIN if possible.</p>"
+            "<p><strong>Before proceeding:</strong> Export any secure notes you want to keep.</p>"
         )
         header.setWordWrap(True)
         header.setTextFormat(Qt.TextFormat.RichText)
@@ -140,8 +140,9 @@ class AccountRecoveryDialog(QDialog):
             confirm = QMessageBox.warning(
                 self,
                 "Confirm PIN Reset",
-                "Resetting your PIN will generate a new master key. "
-                "You will lose access to all files encrypted with your old PIN.\n\n"
+                "Resetting your PIN will generate a new vault master key.\n\n"
+                "⚠️ All Secure Notes encrypted with your old PIN will be LOST.\n"
+                "✓ Files encrypted with the 5-layer system are NOT affected.\n\n"
                 "Are you sure you want to continue?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,

@@ -4,6 +4,20 @@
 
 SecureVault implements a secure authentication system that protects vault access through a multi-layered security approach. The system uses email/password credentials combined with a PIN-based vault unlock mechanism.
 
+### Important: Authentication vs File Encryption Keys
+
+**Authentication Master Key** (This Document):
+- Used for: Secure Notes, vault metadata, internal features
+- Protected by: Your PIN via Argon2id key derivation
+- Scope: PIN reset affects secure notes only
+
+**File Encryption Keys** (Independent System):
+- Used for: 5-layer file encryption (IDA → OTP → ML-KEM → Custom Cipher → Storage)
+- Protected by: Fresh random keys generated per encryption operation
+- Scope: **Completely independent** - NOT affected by PIN reset or authentication changes
+
+This document describes the authentication system only. File encryption uses an entirely separate key hierarchy documented in ARCHITECTURE.md.
+
 ## Key Features
 
 - **No PIN Storage**: The PIN is never stored on disk. Verification happens through cryptographic derivation and decryption.
@@ -248,29 +262,34 @@ print("PIN reset successfully!")
 
 ### Account Recovery Warnings
 
-⚠️ **CRITICAL LIMITATION**: Resetting your PIN generates a new master key. You will **PERMANENTLY LOSE ACCESS** to all files encrypted with the old PIN/master key.
+⚠️ **IMPORTANT**: Resetting your PIN generates a new vault master key. This affects **Secure Notes** only.
+
+**What is affected:**
+- ❌ **Secure Notes** - All notes encrypted with your old vault master key will become inaccessible
+- ✅ **File Encryption** - Files encrypted through the 5-layer system (IDA → OTP → ML-KEM → Cipher → Storage) are **NOT** affected
 
 **Why this happens:**
 
-The current MVP design uses PIN-only master key encryption for maximum security:
+The authentication system uses a vault master key for internal features like Secure Notes:
 
 ```
-PIN → Argon2id → Derived Key → Encrypts → Master Key → Encrypts → Your Files
+PIN → Argon2id → PIN-Derived Key → Encrypts → Vault Master Key → Encrypts → Secure Notes
 ```
 
-Without the old PIN, the old master key **cannot be decrypted**. When you reset your PIN:
+Without the old PIN, the old vault master key **cannot be decrypted**. When you reset your PIN:
 
-1. Old PIN lost → Can't decrypt old master key → Old files inaccessible
-2. New PIN created → New master key generated → Only new files can be encrypted
+1. Old PIN lost → Can't decrypt old vault master key → Old secure notes inaccessible
+2. New PIN created → New vault master key generated → Fresh start for secure notes
 
-**This is a security architecture choice, not a bug.** It prevents an attacker who obtains your password (but not your PIN) from accessing your files.
+**Important distinction:** The 5-layer file encryption pipeline generates **independent keys** for each encryption operation and does not use the vault master key. Files encrypted through the main pipeline are unaffected by PIN reset.
 
 **Before resetting your PIN:**
-1. **Decrypt all encrypted files** with your old PIN if possible
-2. **Backup important data**
-3. Accept that old encrypted files will become inaccessible
+1. **Export all secure notes** if you want to keep them
+2. Understand that file encryption is independent and safe
 
-**Future Enhancement:** Password-based master key recovery is planned for a future release to avoid this data loss, with a configurable security/convenience trade-off.
+**This is a security architecture choice, not a bug.** It prevents an attacker who obtains your password (but not your PIN) from accessing your secure notes.
+
+**Future Enhancement:** Password-based master key recovery is planned for a future release to avoid data loss for secure notes, with a configurable security/convenience trade-off.
 
 ### Session Security
 

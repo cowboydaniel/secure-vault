@@ -528,11 +528,12 @@ class UserManager:
 
         # NOTE: For now, we can't decrypt the master key without the old PIN
         # This would require implementing password-based master key recovery
-        # For MVP, we'll generate a NEW master key (user loses access to old encrypted files)
+        # For MVP, we'll generate a NEW vault master key (user loses access to secure notes)
 
         logger.warning(
-            f"PIN reset for user {user_id} - generating new master key. "
-            "Old encrypted files will be inaccessible!"
+            f"PIN reset for user {user_id} - generating new vault master key. "
+            "Secure notes encrypted with old key will be inaccessible. "
+            "File encryption (5-layer system) is NOT affected."
         )
 
         # Generate new master key
