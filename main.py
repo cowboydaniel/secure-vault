@@ -31,11 +31,17 @@ from entropy_monitor import start_monitoring, stop_monitoring, get_health_status
 from entropy_pool import entropy_accumulator, get_random_bytes
 from pipeline import MultiLayerPipeline, PipelineConfiguration
 from access_control import PermissionLevel, PermissionDeniedError
+from file_utils import (
+    DEFAULT_MAX_INPUT_SIZE_BYTES,
+    InputFileValidationError,
+    validate_input_file,
+)
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
 from crypto_utils import validate_entropy_quality, secure_wipe
 from cli_auth import CLIAuthenticator, AuthenticationFlowError
+from file_utils import validate_storage_path
 from rng_manager import get_rng_manager
 from secure_memory import secure_alloc, secure_free
 
@@ -178,8 +184,12 @@ def decrypt_file_interactive(
     
     # Ask for custom storage directory
     custom_dir = input("\nEnter path to encrypted files (press Enter for default): ").strip()
-    storage_dir = os.path.expanduser(custom_dir) if custom_dir else None
-    
+    try:
+        storage_dir = validate_storage_path(custom_dir or None)
+    except ValueError as exc:
+        print(f"\n❌ Invalid storage directory: {exc}")
+        return False
+
     # List available files
     files = list_encrypted_files(
         storage_dir,
@@ -499,12 +509,16 @@ def encrypt_file_interactive(
     
     # Get file path
     file_path = input("\nEnter file path to encrypt: ").strip('"\'')
-    
-    if not os.path.exists(file_path):
-        print(f"Error: File not found: {file_path}")
+
+    try:
+        file_size = validate_input_file(file_path, DEFAULT_MAX_INPUT_SIZE_BYTES)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
         return False
-    
-    file_size = os.path.getsize(file_path)
+    except InputFileValidationError as exc:
+        print(f"Error: {exc}")
+        return False
+
     print(f"\nFile: {file_path}")
     print(f"Size: {file_size:,} bytes")
     

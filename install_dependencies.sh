@@ -23,6 +23,10 @@ cd ../..
 
 # Install Python packages
 echo "Installing Python packages..."
-pip3 install oqs pycryptodome gmpy2
+pip3 install oqs pycryptodome gmpy2 cyclonedx-bom
 
+echo "Regenerating SBOM from dependency snapshot..."
+# Generate the latest SBOM alongside dependency refresh
+make sbom
 echo "Installation complete!"
+
