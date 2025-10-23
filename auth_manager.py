@@ -22,6 +22,7 @@ from typing import Optional, Dict, Any, Union, Iterator
 from typing import Optional, Dict, Any, Tuple, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+from threading import Lock
 
 from auth_database import AuthDatabase, Session, User
 from user_manager import UserManager
@@ -151,6 +152,7 @@ class AuthSession:
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
+        self._lock: Lock = Lock()
         self.ip_address = ip_address
         self.user_agent = user_agent
 
@@ -158,6 +160,23 @@ class AuthSession:
     def master_key(self) -> Iterator[bytearray]:
         """Context manager providing temporary access to the master key."""
 
+        Raises:
+            SessionExpiredError: If session has expired
+        """
+        now = datetime.now()
+        if now >= self.expires_at:
+            raise SessionExpiredError("Session has expired")
+
+        with self._lock:
+            now = datetime.now()
+            if now >= self.expires_at:
+                raise SessionExpiredError("Session has expired")
+
+            if self._master_key is None:
+                raise SessionExpiredError("Session is closed")
+
+            self.last_activity = now
+            return bytes(self._master_key)
         if self.is_expired():
             raise SessionExpiredError("Session has expired")
 
@@ -188,6 +207,10 @@ class AuthSession:
 
     def close(self):
         """Close session and wipe master key from memory"""
+        with self._lock:
+            if self._master_key:
+                secure_wipe(self._master_key)
+                self._master_key = None
         if self._secret is not None:
             self._secret.zeroize()
             self._secret = None

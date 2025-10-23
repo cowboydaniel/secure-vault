@@ -3,10 +3,17 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
+from datetime import timedelta
 from pathlib import Path
+from unittest import mock
 
 from auth_database import AuthDatabase
+from auth_manager import (
+    AuthManager,
+    InvalidCredentialsError,
+    SessionExpiredError,
 from auth_manager import AuthManager, InvalidCredentialsError, SessionExpiredError
 from auth_manager import (
     AuthManager,
@@ -202,6 +209,62 @@ class AuthenticationTestCase(unittest.TestCase):
                 user_agent,
             )
         )
+
+    def test_get_master_key_rechecks_expiration_under_contention(self) -> None:
+        """Concurrent expiration should prevent key access and avoid activity updates."""
+
+        email = "carol@example.com"
+        password = "Sup3rSecurePass!"
+        pin = "123789"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+        session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
+
+        previous_activity = session.last_activity
+        initial_time = previous_activity
+        future_time = previous_activity + timedelta(seconds=30)
+        expired_time = future_time + timedelta(seconds=1)
+        session.expires_at = future_time
+
+        first_check_event = threading.Event()
+        proceed_event = threading.Event()
+        errors = []
+
+        def fake_now():
+            if not first_check_event.is_set():
+                first_check_event.set()
+                proceed_event.wait(timeout=2)
+                return initial_time
+            return expired_time
+
+        def access_master_key():
+            try:
+                session.get_master_key()
+            except SessionExpiredError as exc:  # pragma: no cover - thread error path
+                errors.append(exc)
+
+        def expire_session():
+            if first_check_event.wait(timeout=2):
+                session.expires_at = initial_time
+                proceed_event.set()
+            else:  # pragma: no cover - diagnostic fallback
+                proceed_event.set()
+
+        with mock.patch("auth_manager.datetime") as mock_datetime:
+            mock_datetime.now.side_effect = fake_now
+
+            worker = threading.Thread(target=access_master_key)
+            expirer = threading.Thread(target=expire_session)
+            worker.start()
+            expirer.start()
+            worker.join(timeout=5)
+            expirer.join(timeout=5)
+
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(expirer.is_alive())
+        self.assertTrue(errors)
+        self.assertIsInstance(errors[0], SessionExpiredError)
+        self.assertEqual(previous_activity, session.last_activity)
 
     def test_rate_limiter_enforces_lockout(self) -> None:
         """Repeated invalid attempts trigger an account lockout."""
