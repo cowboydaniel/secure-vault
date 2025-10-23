@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import unicodedata
 from getpass import getpass
 from typing import Optional, Callable
 
@@ -16,7 +17,7 @@ from auth_manager import (
 )
 from rate_limiter import RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
-from user_manager import UserManager, ValidationError, UserExistsError
+from user_manager import UserManager, ValidationError, UserExistsError, validate_email
 from pin_manager import PINValidationError
 
 
@@ -88,17 +89,23 @@ class CLIAuthenticator:
             password = self._prompt_secret("Create password: ")
             confirm_password = self._prompt_secret("Confirm password: ")
 
-            pin = self._prompt_secret("Choose 6-8 digit PIN: ")
+            pin = self._prompt_secret("Choose a PIN (min 8 chars, letters and digits allowed): ")
             confirm_pin = self._prompt_secret("Confirm PIN: ")
 
             try:
+                normalized_email = validate_email(email)
                 self._validate_matching_secret(password, confirm_password, "Passwords")
                 self._validate_matching_secret(pin, confirm_pin, "PINs")
 
-                user_id = self.user_manager.create_user(email=email, password=password, pin=pin)
+                user_id = self.user_manager.create_user(
+                    email=normalized_email,
+                    password=password,
+                    pin=pin,
+                )
 
-                email_hash_hex = self.auth_manager.pin_manager.hash_email_for_lookup(email).hex()
-                email_hash_hex = self.auth_manager.pin_manager.hash_email(email).hex()
+                email_hash_hex = self.auth_manager.pin_manager.hash_email_for_lookup(
+                    normalized_email
+                ).hex()
                 self.audit_logger.log_event(
                     AuditEventType.CONFIG_CHANGED,
                     AuditSeverity.INFO,
@@ -132,7 +139,14 @@ class CLIAuthenticator:
             pin = self._prompt_secret("PIN: ")
 
             try:
-                session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
+                normalized_email = validate_email(email)
+            except ValidationError as exc:
+                self._log_failure(email, "invalid_email_format", str(exc))
+                print(f"\n❌ {exc}\n")
+                continue
+
+            try:
+                session = self.auth_manager.authenticate_with_pin(email=normalized_email, pin=pin)
                 self.audit_logger.log_event(
                     AuditEventType.AUTH_SUCCESS,
                     AuditSeverity.INFO,
@@ -144,11 +158,11 @@ class CLIAuthenticator:
                 print("\n✅ Authentication successful. Access to SecureVault granted.\n")
                 return session
             except AccountLockedError as exc:
-                self._log_failure(email, "account_locked", str(exc))
+                self._log_failure(normalized_email, "account_locked", str(exc))
                 print(f"\n🚫 {exc}")
                 raise AuthenticationFlowError(str(exc)) from exc
             except RateLimitError as exc:
-                self._log_failure(email, "rate_limited", str(exc))
+                self._log_failure(normalized_email, "rate_limited", str(exc))
                 wait_time = max(0.0, exc.retry_after or 0.0)
                 if wait_time:
                     print(f"\n⏳ {exc} Waiting {int(wait_time)} seconds...")
@@ -156,7 +170,7 @@ class CLIAuthenticator:
                 else:
                     print(f"\n⏳ {exc}")
             except InvalidCredentialsError:
-                self._log_failure(email, "invalid_credentials", "Invalid email or PIN")
+                self._log_failure(normalized_email, "invalid_credentials", "Invalid email or PIN")
                 print("\n❌ Invalid email or PIN. Please try again.\n")
             finally:
                 self._wipe_secret(pin)
@@ -188,8 +202,12 @@ class CLIAuthenticator:
         """Log authentication failures without exposing secrets."""
 
         try:
-            email_hash = self.auth_manager.pin_manager.hash_email_for_lookup(email).hex()
-            email_hash = self.auth_manager.pin_manager.hash_email(email).hex()
+            normalized_email = validate_email(email)
+        except ValidationError:
+            normalized_email = unicodedata.normalize("NFKC", email or "").strip()
+
+        try:
+            email_hash = self.auth_manager.pin_manager.hash_email_for_lookup(normalized_email).hex()
         except Exception:
             email_hash = "unknown"
 
@@ -199,3 +217,13 @@ class CLIAuthenticator:
             "CLI authentication failure",
             {"email_hash": email_hash, "reason": reason, "message": message},
         )
+
+        if hasattr(self.auth_manager, "auth_queue"):
+            snapshot = self.auth_manager.auth_queue.snapshot()
+            logger.info(
+                "Auth queue snapshot after failure: total=%d max_wait=%.3fs max_depth=%d current_waiters=%d",
+                snapshot.total_requests,
+                snapshot.max_wait_time,
+                snapshot.max_queue_depth,
+                snapshot.current_waiters,
+            )

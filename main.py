@@ -21,7 +21,7 @@ import time
 import atexit
 import ctypes
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -31,13 +31,24 @@ from entropy_monitor import start_monitoring, stop_monitoring, get_health_status
 from entropy_pool import entropy_accumulator, get_random_bytes
 from pipeline import MultiLayerPipeline, PipelineConfiguration
 from decrypt_command import write_decrypted_output
+from access_control import PermissionLevel, PermissionDeniedError
+from file_utils import (
+    DEFAULT_MAX_INPUT_SIZE_BYTES,
+    InputFileValidationError,
+    validate_input_file,
+)
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
 from crypto_utils import validate_entropy_quality, secure_wipe
 from cli_auth import CLIAuthenticator, AuthenticationFlowError
+from file_utils import validate_storage_path
 from rng_manager import get_rng_manager
 from secure_memory import secure_alloc, secure_free
+
+if TYPE_CHECKING:  # pragma: no cover - imported for typing only
+    from auth_manager import AuthManager, AuthSession
+    from access_control import AccessControl
 
 def setup_logging(verbose: bool = False):
     """Setup logging configuration"""
@@ -147,7 +158,11 @@ def check_system_requirements():
     print()
     return True
 
-def decrypt_file_interactive():
+def decrypt_file_interactive(
+    session: Optional["AuthSession"] = None,
+    access_control: Optional["AccessControl"] = None,
+    auth_manager: Optional["AuthManager"] = None,
+):
     """Interactive file decryption with secure memory handling"""
     import os
     import time
@@ -170,10 +185,18 @@ def decrypt_file_interactive():
     
     # Ask for custom storage directory
     custom_dir = input("\nEnter path to encrypted files (press Enter for default): ").strip()
-    storage_dir = os.path.expanduser(custom_dir) if custom_dir else None
-    
+    try:
+        storage_dir = validate_storage_path(custom_dir or None)
+    except ValueError as exc:
+        print(f"\n❌ Invalid storage directory: {exc}")
+        return False
+
     # List available files
-    files = list_encrypted_files(storage_dir)
+    files = list_encrypted_files(
+        storage_dir,
+        access_control=access_control,
+        user_id=session.user_id if session else None,
+    )
     if not files:
         return False
     
@@ -192,7 +215,16 @@ def decrypt_file_interactive():
         print(f"\nSelected: {selected_file['original_name']}")
         print(f"Total size: {selected_file['size']:,} bytes")
         print(f"Shares available: {selected_file['shares_available']}/{selected_file['total_shares']}")
-        
+
+        if session and access_control:
+            try:
+                access_control.require_access(
+                    session.user_id, selected_file['file_id'], PermissionLevel.READ
+                )
+            except PermissionDeniedError as exc:
+                print(f"\n❌ Access denied: {exc}")
+                return False
+
         # Store the storage directory in the selected file info if custom dir was provided
         if storage_dir:
             selected_file['storage_dir'] = storage_dir
@@ -464,19 +496,26 @@ def decrypt_file_interactive():
         print("Invalid selection.")
         return False
 
-def encrypt_file_interactive():
+def encrypt_file_interactive(
+    session: Optional["AuthSession"] = None,
+    auth_manager: Optional["AuthManager"] = None,
+):
     """Interactive file encryption"""
     print("\n📁 FILE ENCRYPTION")
     print("=" * 50)
     
     # Get file path
     file_path = input("\nEnter file path to encrypt: ").strip('"\'')
-    
-    if not os.path.exists(file_path):
-        print(f"Error: File not found: {file_path}")
+
+    try:
+        file_size = validate_input_file(file_path, DEFAULT_MAX_INPUT_SIZE_BYTES)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
         return False
-    
-    file_size = os.path.getsize(file_path)
+    except InputFileValidationError as exc:
+        print(f"Error: {exc}")
+        return False
+
     print(f"\nFile: {file_path}")
     print(f"Size: {file_size:,} bytes")
     
@@ -559,7 +598,11 @@ def encrypt_file_interactive():
         print(f"  Fault Tolerance: {'✅' if analysis['fault_tolerance'] else '❌'}")
         print(f"  Algorithm Uniqueness: {'✅' if analysis['algorithm_uniqueness'] else '❌'}")
         print(f"  Successful Layers: {analysis['layers_successful']}/5")
-        
+
+        if session and auth_manager:
+            access_control = auth_manager.get_access_control()
+            access_control.register_owner(result.file_id, session.user_id)
+
     except Exception as e:
         print(f"\n❌ ENCRYPTION FAILED: {e}")
         return False
@@ -643,7 +686,11 @@ def find_share_files(directory):
         print(f"Unexpected error scanning for share files: {e}")
         return None
 
-def list_encrypted_files(storage_dir=None):
+def list_encrypted_files(
+    storage_dir=None,
+    access_control: Optional["AccessControl"] = None,
+    user_id: Optional[int] = None,
+):
     """List all encrypted files
     
     Args:
@@ -656,6 +703,13 @@ def list_encrypted_files(storage_dir=None):
         # First try the standard storage method
         storage = get_storage_engine(storage_dir=storage_dir)
         files = storage.list_stored_files()
+
+        if access_control and user_id is not None:
+            files = [
+                f
+                for f in files
+                if access_control.has_access(user_id, f['file_id'], PermissionLevel.READ)
+            ]
         
         if not files and storage_dir:
             # If no files found and we have a custom directory, look for .sec files directly
@@ -682,6 +736,13 @@ def list_encrypted_files(storage_dir=None):
                         'is_raw_shares': True
                     }
                     files.append(file_info)
+
+        if access_control and user_id is not None:
+            files = [
+                f
+                for f in files
+                if access_control.has_access(user_id, f['file_id'], PermissionLevel.READ)
+            ]
         
         if not files:
             print("\n🔓 No encrypted files found.")
@@ -1201,9 +1262,51 @@ def benchmark_all_sequential():
 def main():
     """Main application entry point"""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Secure Vault - 512-bit Multi-Layer Encryption System')
+    parser = argparse.ArgumentParser(
+        description='Secure Vault - 512-bit Multi-Layer Encryption System'
+    )
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('--version', action='store_true', help='Show version and exit')
+
+    subparsers = parser.add_subparsers(dest='command')
+
+    subparsers.add_parser('encrypt', help='Encrypt a file interactively')
+    subparsers.add_parser('decrypt', help='Decrypt a file interactively')
+
+    list_parser = subparsers.add_parser('list', help='List encrypted files')
+    list_parser.add_argument('--directory', help='Directory containing encrypted shares')
+
+    subparsers.add_parser('status', help='Show system status')
+
+    share_parser = subparsers.add_parser('share', help='Share a file with another user')
+    share_parser.add_argument('file_id', help='Identifier of the file to share')
+    share_parser.add_argument('email', help='Email of the user to grant access to')
+    share_parser.add_argument(
+        '--permission',
+        choices=[perm.value for perm in PermissionLevel],
+        default=PermissionLevel.READ.value,
+        help='Permission level to grant',
+    )
+
+    revoke_parser = subparsers.add_parser('revoke', help='Revoke access from a user')
+    revoke_parser.add_argument('file_id', help='Identifier of the file to revoke')
+    revoke_parser.add_argument('email', help='Email of the user to revoke')
+    revoke_parser.add_argument(
+        '--permission',
+        choices=[perm.value for perm in PermissionLevel] + ['all'],
+        default='all',
+        help='Permission to revoke (default: all permissions)',
+    )
+
+    benchmark_parser = subparsers.add_parser('benchmark', help='Run system benchmarks')
+    benchmark_parser.add_argument('--all', action='store_true', help='Run all benchmarks sequentially')
+    benchmark_parser.add_argument('--entropy', action='store_true', help='Run entropy benchmark')
+    benchmark_parser.add_argument('--gf', action='store_true', help='Run Galois field benchmark')
+    benchmark_parser.add_argument('--ida', action='store_true', help='Run IDA benchmark')
+    benchmark_parser.add_argument('--otp', action='store_true', help='Run OTP benchmark')
+    benchmark_parser.add_argument('--mlkem', action='store_true', help='Run ML-KEM benchmark')
+    benchmark_parser.add_argument('--cipher', action='store_true', help='Run custom cipher benchmark')
+    benchmark_parser.add_argument('--storage', action='store_true', help='Run storage benchmark')
     args = parser.parse_args()
     
     # Show version and exit if requested
@@ -1246,14 +1349,78 @@ def main():
         logging.getLogger('secure_vault').info("Authentication cancelled by user")
         return 130
 
+    access_control = authenticator.auth_manager.get_access_control()
+
     # Handle commands
     try:
         if args.command == 'encrypt':
-            return encrypt_file_interactive(args.input_file, args.output)
+            success = encrypt_file_interactive(
+                session=session,
+                auth_manager=authenticator.auth_manager,
+            )
+            return 0 if success else 1
         elif args.command == 'decrypt':
-            return decrypt_file_interactive(args.input_file, args.output)
+            success = decrypt_file_interactive(
+                session=session,
+                access_control=access_control,
+                auth_manager=authenticator.auth_manager,
+            )
+            return 0 if success else 1
         elif args.command == 'list':
-            return list_encrypted_files(args.directory)
+            list_encrypted_files(
+                args.directory,
+                access_control=access_control,
+                user_id=session.user_id,
+            )
+            return 0
+        elif args.command == 'share':
+            target_user = authenticator.user_manager.get_user_by_email(args.email)
+            if not target_user:
+                print(f"❌ No user registered with email {args.email}")
+                return 1
+
+            permission = PermissionLevel(args.permission)
+            try:
+                authenticator.auth_manager.grant_file_access(
+                    session.user_id,
+                    target_user.user_id,
+                    args.file_id,
+                    permission,
+                )
+            except PermissionDeniedError as exc:
+                print(f"❌ Unable to grant access: {exc}")
+                return 1
+
+            print(
+                f"✅ Granted {permission.value} access on {args.file_id} to {args.email}"
+            )
+            return 0
+        elif args.command == 'revoke':
+            target_user = authenticator.user_manager.get_user_by_email(args.email)
+            if not target_user:
+                print(f"❌ No user registered with email {args.email}")
+                return 1
+
+            permissions = None
+            if args.permission != 'all':
+                permissions = [PermissionLevel(args.permission)]
+
+            try:
+                authenticator.auth_manager.revoke_file_access(
+                    session.user_id,
+                    target_user.user_id,
+                    args.file_id,
+                    permissions,
+                )
+            except PermissionDeniedError as exc:
+                print(f"❌ Unable to revoke access: {exc}")
+                return 1
+
+            action_desc = 'all permissions' if permissions is None else permissions[0].value
+            print(
+                f"✅ Revoked {action_desc} from {args.email} on {args.file_id}"
+            )
+            return 0
         elif args.command == 'status':
             show_system_status()
             return 0
@@ -1276,6 +1443,9 @@ def main():
                 if args.storage:
                     benchmark_storage_layer()
                 return 0
+        elif args.command is not None:
+            parser.print_help()
+            return 1
         else:
             parser.print_help()
             return 0
@@ -1304,13 +1474,23 @@ def main():
         
         try:
             choice = input("\nSelect option (1-6): ").strip()
-            
+
             if choice == '1':
-                encrypt_file_interactive()
+                encrypt_file_interactive(
+                    session=session,
+                    auth_manager=authenticator.auth_manager,
+                )
             elif choice == '2':
-                decrypt_file_interactive()
+                decrypt_file_interactive(
+                    session=session,
+                    access_control=access_control,
+                    auth_manager=authenticator.auth_manager,
+                )
             elif choice == '3':
-                list_encrypted_files()
+                list_encrypted_files(
+                    access_control=access_control,
+                    user_id=session.user_id if session else None,
+                )
             elif choice == '4':
                 show_system_status()
             elif choice == '5':
