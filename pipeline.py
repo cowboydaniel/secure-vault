@@ -35,6 +35,11 @@ from crypto_utils import (
 )
 from constants import EncryptionMetadata, LayerType, SecurityLevel
 from config import SECURITY_LEVEL_BYTES, ClassificationLevel
+from file_utils import (
+    DEFAULT_MAX_INPUT_SIZE_BYTES,
+    InputFileValidationError,
+    validate_input_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +70,21 @@ class PipelineConfiguration:
     ida_config: IDAConfiguration
     otp_config: OTPConfiguration
     enable_compression: bool = True
-    
+
     # Security settings
     classification_level: ClassificationLevel = ClassificationLevel.SECRET
     require_perfect_secrecy: bool = True
     enable_steganography: bool = False
-    
+
     # Performance settings
     chunk_size: int = 1024 * 1024  # 1MB chunks
     parallel_processing: bool = True
     max_threads: int = 4
-    
+
     # Storage settings
     distribute_shares: bool = True
     share_storage_paths: List[str] = None
+    max_input_size_bytes: int = DEFAULT_MAX_INPUT_SIZE_BYTES
 
 @dataclass
 class EncryptionResult:
@@ -172,9 +178,14 @@ class MultiLayerPipeline:
         Returns:
             Complete encryption result
         """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
+        try:
+            validate_input_file(file_path, self.config.max_input_size_bytes)
+        except FileNotFoundError:
+            raise
+        except InputFileValidationError as exc:
+            logger.error("Input validation failed for %s: %s", file_path, exc)
+            raise
+
         file_id = self._generate_file_id(file_path)
         start_time = time.time()
         
@@ -189,7 +200,7 @@ class MultiLayerPipeline:
             # Read input file
             with open(file_path, 'rb') as f:
                 original_data = f.read()
-            
+
             original_size = len(original_data)
             layer_results = []
             
@@ -1197,12 +1208,14 @@ class MultiLayerPipeline:
             logger.error(f"Multi-layer decryption failed: {e}")
             return False
         
-    # Clean up any active operations
-    with self._operation_lock:
-        for op_id in list(self._active_operations.keys()):
-            self._active_operations[op_id] = False
-        
-    logger.info("Multi-layer pipeline shutdown complete")
+    def shutdown(self):
+        """Shut down the pipeline and reset internal state."""
+        logger.info("Shutting down multi-layer pipeline")
+        with self._operation_lock:
+            for op_id in list(self._active_operations.keys()):
+                self._active_operations[op_id] = False
+
+        logger.info("Multi-layer pipeline shutdown complete")
 
 # Global pipeline instance
 _pipeline = None

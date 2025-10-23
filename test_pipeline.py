@@ -18,8 +18,9 @@ from pipeline import (
 )
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
-from constants import LayerType
+from constants import LayerType, GF512_IRREDUCIBLE_POLYNOMIAL
 from config import ClassificationLevel
+from file_utils import InputFileValidationError
 
 
 class TestPipelineInitialization:
@@ -105,6 +106,30 @@ class TestPipelineFileEncryption:
 
             # Should raise an error or handle gracefully
             with pytest.raises(Exception):
+                pipeline.encrypt_file(temp_file)
+
+        finally:
+            os.unlink(temp_file)
+
+    def test_encrypt_file_exceeding_max_size_fails(self):
+        """Test that files larger than the configured maximum are rejected."""
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
+            f.write(os.urandom(2048))  # 2 KB
+            temp_file = f.name
+
+        try:
+            config = PipelineConfiguration(
+                ida_config=IDAConfiguration(
+                    total_shares=5,
+                    threshold=3,
+                    field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+                ),
+                otp_config=OTPConfiguration(),
+            )
+            config.max_input_size_bytes = 1024
+            pipeline = MultiLayerPipeline(config)
+
+            with pytest.raises(InputFileValidationError):
                 pipeline.encrypt_file(temp_file)
 
         finally:

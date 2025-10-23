@@ -22,6 +22,7 @@ from audit_logger import AuditEventType, AuditLogger, AuditSeverity, get_audit_l
 from auth_manager import AuthManager, AuthSession, InvalidCredentialsError
 from rate_limiter import AccountLockedError, RateLimitError
 from secure_memory import secure_wipe
+from LINUX_GUI.utils import safe_set_text
 
 
 logger = logging.getLogger(__name__)
@@ -150,7 +151,7 @@ class LoginDialog(QDialog):
             self._wipe_secret(pin)
 
     def _show_error(self, message: str) -> None:
-        self.error_label.setText(message)
+        safe_set_text(self.error_label, message)
         self.error_label.setVisible(True)
 
     def _log_failure(self, email: str, reason: str, message: str) -> None:
@@ -186,7 +187,7 @@ class LoginDialog(QDialog):
             )
             # Pre-fill email if it was entered
             if dialog.email_edit.text():
-                self.email_edit.setText(dialog.email_edit.text())
+                safe_set_text(self.email_edit, dialog.email_edit.text())
             self.pin_edit.clear()
             self.pin_edit.setFocus()
 

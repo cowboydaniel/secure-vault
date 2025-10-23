@@ -52,6 +52,7 @@ structlog>=23.1.0           # Structured logging
 rich>=13.5.0                # Rich text and beautiful formatting
 
 # Development tools
+cyclonedx-bom>=4.0.0         # SBOM generation tooling
 black>=23.7.0               # Code formatting
 isort>=5.12.0               # Import sorting
 mypy>=1.5.0                 # Type checking

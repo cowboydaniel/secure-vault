@@ -12,13 +12,27 @@ This module contains comprehensive tests for all cryptographic primitives,
 with a focus on security properties and edge cases.
 """
 
-import unittest
 import os
+import shutil
+import tempfile
 import time
+import tempfile
+import unittest
+from pathlib import Path
 from typing import List, Tuple
+
 import numpy as np
+
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from metadata_manager import MetadataManager, FileMetadata, PermissionLevel
+from access_control import AccessControl, PermissionDeniedError
+from config import StorageConfig
+from custom_cipher import Cipher512
+from crypto_utils import secure_random_bytes
+from file_utils import SymlinkOpenError, safe_file_open
+from pin_manager import PINManager
+from file_utils import validate_storage_path
 
 class TestCustomCipherSecurity(unittest.TestCase):
     """Security tests for the custom 512-bit cipher"""
@@ -159,7 +173,7 @@ class TestCustomCipherSecurity(unittest.TestCase):
 
 class TestCustomCipherCornerCases(unittest.TestCase):
     """Tests for edge cases and corner cases"""
-    
+
     def setUp(self):
         """Set up test fixtures"""
         self.key = secure_random_bytes(64)  # 512-bit key
@@ -186,6 +200,206 @@ class TestCustomCipherCornerCases(unittest.TestCase):
         for i in range(len(blocks)):
             for j in range(i + 1, len(blocks)):
                 self.assertNotEqual(blocks[i], blocks[j])
+
+
+class TestSafeFileOpen(unittest.TestCase):
+    """Regression tests for secure file handling helpers."""
+
+    def test_symlink_rejected_for_read(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("classified data")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "r"):
+                    pass
+
+    def test_symlink_rejected_for_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("original")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "w"):
+                    pass
+class TestAccessControlIntegration(unittest.TestCase):
+    """Integration tests for the access control service."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "metadata.db")
+        self.metadata_manager = MetadataManager(db_path=self.db_path)
+        self.access_control = AccessControl(self.metadata_manager)
+
+        self.owner_id = 1
+        self.other_user_id = 2
+        self.file_id = "test-file"
+
+        metadata = FileMetadata(
+            file_id=self.file_id,
+            original_name="document.txt",
+            original_size=128,
+            encrypted_size=256,
+            encryption_timestamp=time.time(),
+            encryption_algorithm="AES-256",
+            key_id="key-1",
+            iv=b"0" * 16,
+            integrity_hash="hash",
+            compression_used=False,
+        )
+
+        self.metadata_manager.add_file_metadata(metadata)
+        self.access_control.register_owner(self.file_id, self.owner_id)
+class TestPINManagerTiming(unittest.TestCase):
+    """Timing tests to ensure PIN-based decryption remains constant time."""
+
+    def setUp(self):
+        self.manager = PINManager()
+        self.associated_data = b"timing-test-associated"
+        self.master_key = os.urandom(32)
+        self.pin_key = os.urandom(32)
+        self.encrypted_payload = self.manager.encrypt_master_key(
+            self.master_key,
+            self.pin_key,
+            self.associated_data,
+        )
+
+        # Sanity check to ensure baseline decryption works as expected.
+        decrypted = self.manager.decrypt_master_key(
+            self.encrypted_payload,
+            self.pin_key,
+            self.associated_data,
+        )
+        self.assertEqual(self.master_key, decrypted)
+
+    def _average_runtime(self, key_material: bytes, payload: bytes, iterations: int = 30) -> float:
+        start = time.perf_counter()
+        for _ in range(iterations):
+            try:
+                self.manager.decrypt_master_key(payload, key_material, self.associated_data)
+            except ValueError:
+                # Invalid inputs are expected in some scenarios under test.
+                pass
+        end = time.perf_counter()
+        return (end - start) / iterations
+
+    def test_constant_time_for_invalid_pin(self):
+        """Valid and invalid PIN attempts should take comparable time."""
+
+        valid_runtime = self._average_runtime(self.pin_key, self.encrypted_payload)
+
+        modified_key = bytearray(self.pin_key)
+        modified_key[0] ^= 0x01
+        invalid_runtime = self._average_runtime(bytes(modified_key), self.encrypted_payload)
+
+        tolerance = max(0.002, 0.25 * valid_runtime)
+        self.assertLess(abs(valid_runtime - invalid_runtime), tolerance)
+
+    def test_constant_time_for_malformed_payload(self):
+        """Malformed payloads should not significantly change execution time."""
+
+        valid_runtime = self._average_runtime(self.pin_key, self.encrypted_payload)
+
+        malformed_payload = self.encrypted_payload[:20]
+        malformed_runtime = self._average_runtime(self.pin_key, malformed_payload)
+
+        tolerance = max(0.002, 0.25 * valid_runtime)
+        self.assertLess(abs(valid_runtime - malformed_runtime), tolerance)
+class TestStoragePathValidation(unittest.TestCase):
+    """Security tests for storage path validation helper."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base_path = Path(self.temp_dir.name).resolve()
+        self.allowlist = [self.base_path]
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_owner_has_full_control(self):
+        for permission in PermissionLevel:
+            self.assertTrue(
+                self.access_control.has_access(self.owner_id, self.file_id, permission)
+            )
+
+    def test_unauthorized_user_denied(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.require_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+    def test_grant_and_revoke_flow(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.grant_access(
+                self.other_user_id, self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+        self.access_control.grant_access(
+            self.owner_id, self.other_user_id, self.file_id, PermissionLevel.READ
+        )
+        self.assertTrue(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
+
+        self.access_control.revoke_access(
+            self.owner_id, self.other_user_id, self.file_id, [PermissionLevel.READ]
+        )
+        self.assertFalse(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
+    def test_allows_nested_directory(self):
+        """Nested directories within the allowlist should be accepted."""
+        nested = self.base_path / "nested" / "vault"
+        validated = validate_storage_path(nested, allowlist=self.allowlist)
+        self.assertEqual(validated, nested.resolve())
+
+    def test_rejects_traversal_outside_allowlist(self):
+        """Traversal attempts escaping the allowlist must be rejected."""
+        escape_path = self.base_path / ".." / "outside"
+        with self.assertRaises(ValueError):
+            validate_storage_path(escape_path, allowlist=self.allowlist)
+
+    def test_rejects_symlink_escape(self):
+        """Symlink-based escapes should be detected."""
+        outside_dir = Path(tempfile.mkdtemp())
+        symlink_path = self.base_path / "link"
+
+        try:
+            symlink_path.symlink_to(outside_dir)
+            with self.assertRaises(ValueError):
+                validate_storage_path(symlink_path / "nested", allowlist=self.allowlist)
+        finally:
+            symlink_path.unlink(missing_ok=True)
+            shutil.rmtree(outside_dir, ignore_errors=True)
+
+    def test_environment_allowlist_extension(self):
+        """Administrators can extend the allowlist via environment variable."""
+        extra_dir = Path(tempfile.mkdtemp())
+        env_key = StorageConfig.EXTRA_SAFE_DIRECTORIES_ENV
+        original_env = os.environ.get(env_key)
+
+        try:
+            os.environ[env_key] = str(extra_dir)
+            validated = validate_storage_path(extra_dir / "nested")
+            self.assertEqual(validated, (extra_dir / "nested").resolve())
+        finally:
+            if original_env is not None:
+                os.environ[env_key] = original_env
+            else:
+                os.environ.pop(env_key, None)
+            shutil.rmtree(extra_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
