@@ -15,11 +15,12 @@ This module provides the high-level authentication API used by the GUI and CLI.
 import os
 import uuid
 import logging
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
 from auth_database import AuthDatabase, Session, User
+from access_control import AccessControl, PermissionLevel
 from user_manager import UserManager
 from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
@@ -162,6 +163,9 @@ class AuthManager:
 
         # Active sessions (in-memory)
         self._sessions: Dict[str, AuthSession] = {}
+
+        # Access control service shared across the application
+        self.access_control = AccessControl()
 
         logger.info("Authentication manager initialized")
 
@@ -554,6 +558,57 @@ class AuthManager:
         self.db.delete_session(session_id)
 
         logger.info(f"Logged out session {session_id}")
+
+    # ------------------------------------------------------------------
+    # Access control helpers
+    # ------------------------------------------------------------------
+
+    def get_access_control(self) -> AccessControl:
+        """Expose the shared AccessControl instance."""
+
+        return self.access_control
+
+    def grant_file_access(
+        self,
+        actor_user_id: int,
+        target_user_id: int,
+        file_id: str,
+        permission: PermissionLevel,
+    ) -> None:
+        """Grant access to a file on behalf of the authenticated actor."""
+
+        self.access_control.grant_access(actor_user_id, target_user_id, file_id, permission)
+
+    def revoke_file_access(
+        self,
+        actor_user_id: int,
+        target_user_id: int,
+        file_id: str,
+        permissions: Optional[List[PermissionLevel]] = None,
+    ) -> None:
+        """Revoke access from a file on behalf of the authenticated actor."""
+
+        self.access_control.revoke_access(actor_user_id, target_user_id, file_id, permissions)
+
+    def require_file_access(
+        self,
+        user_id: int,
+        file_id: str,
+        permission: PermissionLevel,
+    ) -> None:
+        """Ensure the user has the requested permission."""
+
+        self.access_control.require_access(user_id, file_id, permission)
+
+    def has_file_access(
+        self,
+        user_id: int,
+        file_id: str,
+        permission: PermissionLevel,
+    ) -> bool:
+        """Check if a user currently has a permission."""
+
+        return self.access_control.has_access(user_id, file_id, permission)
 
     def cleanup_expired_sessions(self) -> int:
         """

@@ -15,10 +15,15 @@ with a focus on security properties and edge cases.
 import unittest
 import os
 import time
+import tempfile
 from typing import List, Tuple
+
 import numpy as np
+
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from metadata_manager import MetadataManager, FileMetadata, PermissionLevel
+from access_control import AccessControl, PermissionDeniedError
 
 class TestCustomCipherSecurity(unittest.TestCase):
     """Security tests for the custom 512-bit cipher"""
@@ -159,7 +164,7 @@ class TestCustomCipherSecurity(unittest.TestCase):
 
 class TestCustomCipherCornerCases(unittest.TestCase):
     """Tests for edge cases and corner cases"""
-    
+
     def setUp(self):
         """Set up test fixtures"""
         self.key = secure_random_bytes(64)  # 512-bit key
@@ -186,6 +191,75 @@ class TestCustomCipherCornerCases(unittest.TestCase):
         for i in range(len(blocks)):
             for j in range(i + 1, len(blocks)):
                 self.assertNotEqual(blocks[i], blocks[j])
+
+
+class TestAccessControlIntegration(unittest.TestCase):
+    """Integration tests for the access control service."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "metadata.db")
+        self.metadata_manager = MetadataManager(db_path=self.db_path)
+        self.access_control = AccessControl(self.metadata_manager)
+
+        self.owner_id = 1
+        self.other_user_id = 2
+        self.file_id = "test-file"
+
+        metadata = FileMetadata(
+            file_id=self.file_id,
+            original_name="document.txt",
+            original_size=128,
+            encrypted_size=256,
+            encryption_timestamp=time.time(),
+            encryption_algorithm="AES-256",
+            key_id="key-1",
+            iv=b"0" * 16,
+            integrity_hash="hash",
+            compression_used=False,
+        )
+
+        self.metadata_manager.add_file_metadata(metadata)
+        self.access_control.register_owner(self.file_id, self.owner_id)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_owner_has_full_control(self):
+        for permission in PermissionLevel:
+            self.assertTrue(
+                self.access_control.has_access(self.owner_id, self.file_id, permission)
+            )
+
+    def test_unauthorized_user_denied(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.require_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+    def test_grant_and_revoke_flow(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.grant_access(
+                self.other_user_id, self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+        self.access_control.grant_access(
+            self.owner_id, self.other_user_id, self.file_id, PermissionLevel.READ
+        )
+        self.assertTrue(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
+
+        self.access_control.revoke_access(
+            self.owner_id, self.other_user_id, self.file_id, [PermissionLevel.READ]
+        )
+        self.assertFalse(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
 
 
 if __name__ == "__main__":
