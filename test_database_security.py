@@ -20,6 +20,12 @@ class DatabaseSecurityTests(unittest.TestCase):
 
     def test_metadata_manager_pragmas(self) -> None:
         db_path = self.base_path / "metadata.db"
+        state_dir = self.base_path / "metadata_state"
+        previous_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        previous_wrap = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
+        os.environ["SECURE_VAULT_STATE_DIR"] = str(state_dir)
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "db-metadata-wrap"
+        self.addCleanup(self._restore_env, previous_state_dir, previous_wrap)
         manager = MetadataManager(db_path=str(db_path))
 
         conn = manager._get_connection()
@@ -34,6 +40,12 @@ class DatabaseSecurityTests(unittest.TestCase):
 
     def test_metadata_manager_cleanup_removes_residual_files(self) -> None:
         db_path = self.base_path / "metadata_cleanup.db"
+        state_dir = self.base_path / "metadata_cleanup_state"
+        previous_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        previous_wrap = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
+        os.environ["SECURE_VAULT_STATE_DIR"] = str(state_dir)
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "db-metadata-wrap"
+        self.addCleanup(self._restore_env, previous_state_dir, previous_wrap)
         manager = MetadataManager(db_path=str(db_path))
 
         wal_path = Path(f"{db_path}-wal")

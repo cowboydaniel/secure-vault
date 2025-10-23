@@ -7,6 +7,7 @@ steganography, metadata protection, and distributed storage capabilities.
 """
 
 import io
+import math
 import os
 import time
 import struct
@@ -611,9 +612,11 @@ class SecureStorageEngine:
             
             # Create square image
             side_length = int(np.sqrt(min_pixels / 3)) + 1  # 3 channels (RGB)
-            
-            # Generate random carrier image
-            carrier = np.random.randint(0, 256, (side_length, side_length, 3), dtype=np.uint8)
+
+            # Generate random carrier image using CSPRNG
+            random_bytes = secure_random_bytes(side_length * side_length * 3)
+            carrier = np.frombuffer(random_bytes, dtype=np.uint8).copy()
+            carrier = carrier.reshape((side_length, side_length, 3))
             
             # Encode data length in first 64 bits
             data_length_bits = format(len(data), '064b')
@@ -638,20 +641,21 @@ class SecureStorageEngine:
             logger.info(f"Steganographic container created: {output_path}")
             
         except ImportError:
-            logger.warning("PIL not available, using simple steganographic format")
-            # Fallback: prepend data to random bytes
-            carrier_size = len(data) * 10  # 10x expansion
-            carrier = secure_random_bytes(carrier_size)
-            
-            # Simple XOR hiding
-            hidden_data = bytearray(carrier)
-            for i, byte in enumerate(data):
-                if i < len(hidden_data):
-                    hidden_data[i] ^= byte
-            
-            with safe_file_open(output_path, 'wb') as f:
-                f.write(hidden_data)
-            self._write_file(output_path, hidden_data)
+            logger.warning("PIL not available, using deterministic PPM steganography fallback")
+
+            side_length = int(math.sqrt(min_pixels / 3)) + 1
+            total_channels = side_length * side_length * 3
+            carrier = bytearray(secure_random_bytes(total_channels))
+
+            data_bits_str = ''.join(format(byte, '08b') for byte in data)
+            all_bits = data_length_bits + data_bits_str
+
+            for index, bit in enumerate(all_bits[:len(carrier)]):
+                carrier[index] = (carrier[index] & 0xFE) | int(bit)
+
+            header = f"P6\n{side_length} {side_length}\n255\n".encode('ascii')
+            payload = header + bytes(carrier)
+            self._write_file(output_path, payload)
 
     def _write_file(self, path: Union[str, Path], data: bytes) -> None:
         """Safely write data to disk with strict permissions."""
@@ -810,14 +814,46 @@ class SecureStorageEngine:
             return bytes(data)
             
         except ImportError:
-            logger.warning("PIL not available, using simple steganographic extraction")
-            # Fallback: simple XOR extraction
-            with safe_file_open(container_path, 'rb') as f:
-                hidden_data = f.read()
-            
-            # This is a simplified extraction - in practice you'd need
-            # to know the original data length
-            return hidden_data[:len(hidden_data) // 10]  # Assume 10x expansion
+            logger.warning("PIL not available, extracting from PPM steganographic fallback")
+            with safe_file_open(container_path, 'rb') as handle:
+                magic = handle.readline().strip()
+                if magic != b'P6':
+                    raise ValueError("Unsupported steganography carrier format")
+
+                dimensions = handle.readline().strip()
+                try:
+                    width_str, height_str = dimensions.split()
+                    width = int(width_str)
+                    height = int(height_str)
+                except ValueError as exc:
+                    raise ValueError("Invalid PPM header") from exc
+
+                max_value = handle.readline().strip()
+                if max_value != b'255':
+                    raise ValueError("Unsupported color depth in PPM fallback")
+
+                pixel_count = width * height * 3
+                carrier = bytearray(handle.read(pixel_count))
+
+            if len(carrier) < 64:
+                raise ValueError("PPM carrier too small to contain metadata")
+
+            length_bits = ''.join(str(carrier[i] & 1) for i in range(64))
+            data_length = int(length_bits, 2)
+            payload_bit_count = data_length * 8
+
+            if 64 + payload_bit_count > len(carrier):
+                raise ValueError("Embedded payload exceeds carrier size")
+
+            payload_bits = ''.join(str(carrier[i] & 1) for i in range(64, 64 + payload_bit_count))
+
+            data = bytearray()
+            for start in range(0, len(payload_bits), 8):
+                byte_bits = payload_bits[start:start + 8]
+                if len(byte_bits) == 8:
+                    data.append(int(byte_bits, 2))
+
+            return bytes(data)
     
     def _verify_container_integrity(self, container_data: bytes, expected_checksum: bytes) -> bool:
         """Verify container integrity"""
