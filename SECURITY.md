@@ -50,6 +50,8 @@ SecureVault implements defense-in-depth through 5 independent security layers:
    - Encrypted metadata
    - Integrity verification (HMAC-SHA3-512)
    - Secure file permissions
+   - SQLite hardened with `PRAGMA journal_mode=TRUNCATE` and `secure_delete=ON`
+   - Residual `*-wal`, `*-shm`, and backup artifacts removed after shutdown
 
 ### Cryptographic Practices
 
@@ -79,7 +81,7 @@ Critical operations implement constant-time algorithms to prevent timing attacks
 
 ### Custom Cipher Warning
 
-  **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
+- **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
 
 - **NOT production-ready** for critical data
 - **NOT peer-reviewed** by professional cryptographers

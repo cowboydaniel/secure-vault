@@ -5,14 +5,13 @@ Manages metadata for encrypted files including file information,
 encryption parameters, and integrity data in a secure SQLite database.
 """
 
+import atexit
 import sqlite3
 import json
 import time
-import os
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from pathlib import Path
-from dataclasses import dataclass, asdict
-import hashlib
+from dataclasses import dataclass
 
 
 @dataclass
@@ -36,6 +35,7 @@ class FileMetadata:
 
 
 class MetadataManager:
+    _registered_cleanup_paths = set()
     """
     Secure metadata management using encrypted SQLite database
 
@@ -58,10 +58,11 @@ class MetadataManager:
         self.db_path = Path(db_path)
         self.encryption_key = encryption_key
         self._init_database()
+        self._register_shutdown_cleanup()
 
     def _init_database(self):
         """Initialize database schema"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Main metadata table
@@ -118,6 +119,62 @@ class MetadataManager:
         conn.commit()
         conn.close()
 
+    def _register_shutdown_cleanup(self) -> None:
+        """Register cleanup handler for residual database artifacts."""
+        resolved_path = self.db_path.resolve()
+        path_key = str(resolved_path)
+        if path_key in self._registered_cleanup_paths:
+            return
+        self._registered_cleanup_paths.add(path_key)
+        atexit.register(self._cleanup_residual_files_for_path, resolved_path)
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Return a SQLite connection with hardened PRAGMA settings."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=TRUNCATE")
+        conn.execute("PRAGMA secure_delete=ON")
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def cleanup(self) -> None:
+        """Remove SQLite residual files after a safe shutdown."""
+        self._cleanup_residual_files_for_path(self.db_path.resolve())
+
+    @staticmethod
+    def _cleanup_residual_files_for_path(db_path: Path) -> None:
+        """Delete WAL, SHM, and backup artifacts for the provided database."""
+        parent = db_path.parent
+        if not parent.exists():
+            return
+
+        residual_suffixes = ("-wal", "-shm")
+        backup_patterns = (
+            f"{db_path.name}.bak",
+            f"{db_path.name}.backup",
+            f"{db_path.stem}.bak",
+            f"{db_path.stem}.backup",
+        )
+
+        for suffix in residual_suffixes:
+            candidate = db_path.with_name(db_path.name + suffix)
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass
+
+        for pattern in backup_patterns:
+            for candidate in parent.glob(pattern):
+                if candidate == db_path:
+                    continue
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    pass
+
     def add_file_metadata(self, metadata: FileMetadata) -> bool:
         """
         Add file metadata to database
@@ -128,7 +185,7 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -185,7 +242,7 @@ class MetadataManager:
         Returns:
             FileMetadata object or None if not found
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -236,7 +293,7 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -278,7 +335,7 @@ class MetadataManager:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -318,7 +375,7 @@ class MetadataManager:
         Returns:
             List of matching FileMetadata objects
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -393,7 +450,7 @@ class MetadataManager:
         Returns:
             List of FileMetadata objects
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
@@ -436,7 +493,7 @@ class MetadataManager:
         Returns:
             Dictionary with statistics
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
