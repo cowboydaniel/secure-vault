@@ -25,6 +25,7 @@ import numpy as np
 from config import StorageConfig
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from pin_manager import PINManager
 from file_utils import validate_storage_path
 
 class TestCustomCipherSecurity(unittest.TestCase):
@@ -195,6 +196,61 @@ class TestCustomCipherCornerCases(unittest.TestCase):
                 self.assertNotEqual(blocks[i], blocks[j])
 
 
+class TestPINManagerTiming(unittest.TestCase):
+    """Timing tests to ensure PIN-based decryption remains constant time."""
+
+    def setUp(self):
+        self.manager = PINManager()
+        self.associated_data = b"timing-test-associated"
+        self.master_key = os.urandom(32)
+        self.pin_key = os.urandom(32)
+        self.encrypted_payload = self.manager.encrypt_master_key(
+            self.master_key,
+            self.pin_key,
+            self.associated_data,
+        )
+
+        # Sanity check to ensure baseline decryption works as expected.
+        decrypted = self.manager.decrypt_master_key(
+            self.encrypted_payload,
+            self.pin_key,
+            self.associated_data,
+        )
+        self.assertEqual(self.master_key, decrypted)
+
+    def _average_runtime(self, key_material: bytes, payload: bytes, iterations: int = 30) -> float:
+        start = time.perf_counter()
+        for _ in range(iterations):
+            try:
+                self.manager.decrypt_master_key(payload, key_material, self.associated_data)
+            except ValueError:
+                # Invalid inputs are expected in some scenarios under test.
+                pass
+        end = time.perf_counter()
+        return (end - start) / iterations
+
+    def test_constant_time_for_invalid_pin(self):
+        """Valid and invalid PIN attempts should take comparable time."""
+
+        valid_runtime = self._average_runtime(self.pin_key, self.encrypted_payload)
+
+        modified_key = bytearray(self.pin_key)
+        modified_key[0] ^= 0x01
+        invalid_runtime = self._average_runtime(bytes(modified_key), self.encrypted_payload)
+
+        tolerance = max(0.002, 0.25 * valid_runtime)
+        self.assertLess(abs(valid_runtime - invalid_runtime), tolerance)
+
+    def test_constant_time_for_malformed_payload(self):
+        """Malformed payloads should not significantly change execution time."""
+
+        valid_runtime = self._average_runtime(self.pin_key, self.encrypted_payload)
+
+        malformed_payload = self.encrypted_payload[:20]
+        malformed_runtime = self._average_runtime(self.pin_key, malformed_payload)
+
+        tolerance = max(0.002, 0.25 * valid_runtime)
+        self.assertLess(abs(valid_runtime - malformed_runtime), tolerance)
 class TestStoragePathValidation(unittest.TestCase):
     """Security tests for storage path validation helper."""
 

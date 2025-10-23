@@ -391,31 +391,65 @@ class PINManager:
             cryptography.exceptions.InvalidTag: Wrong PIN or tampered data
             ValueError: Invalid encrypted data format
         """
-        if len(pin_derived_key) != 32:
-            raise ValueError("PIN-derived key must be 32 bytes")
+        normalized_key = bytes(pin_derived_key)
+        key_valid = len(normalized_key) == 32
+        working_key = normalized_key if key_valid else b"\x00" * 32
 
-        if len(encrypted_data) < 12 + 16:  # nonce + tag minimum
-            raise ValueError("Invalid encrypted data format")
+        payload_valid = len(encrypted_data) >= 12 + 16
+        if payload_valid:
+            nonce = encrypted_data[:12]
+            ciphertext = encrypted_data[12:]
+        else:
+            nonce = b"\x00" * 12
+            ciphertext = b"\x00" * 16
 
-        # Extract nonce and ciphertext
-        nonce = encrypted_data[:12]
-        ciphertext = encrypted_data[12:]  # Includes authentication tag
+        aesgcm = AESGCM(working_key)
 
-        # Create AES-GCM cipher
-        aesgcm = AESGCM(bytes(pin_derived_key))
+        validation_issues = []
+        if not key_valid:
+            validation_issues.append("invalid key length")
+        if not payload_valid:
+            validation_issues.append("invalid encrypted payload")
 
-        # Decrypt and verify
-        # If PIN is wrong, this will raise InvalidTag exception
+        plaintext: bytes = b""
+        decrypt_error: Optional[Exception] = None
+
         try:
             plaintext = aesgcm.decrypt(
                 nonce=nonce,
                 data=ciphertext,
                 associated_data=associated_data
             )
-            return plaintext
-        except Exception as e:
-            # Don't leak information about the error
-            raise ValueError("Decryption failed - invalid PIN") from e
+        except Exception as exc:
+            decrypt_error = exc
+
+        if validation_issues or decrypt_error:
+            dummy_nonce = b"\x00" * 12
+            dummy_ciphertext = b"\x00" * 16
+            for _ in range(2):
+                try:
+                    aesgcm.decrypt(
+                        nonce=dummy_nonce,
+                        data=dummy_ciphertext,
+                        associated_data=associated_data
+                    )
+                except Exception:
+                    continue
+
+            log_reason = ", ".join(validation_issues) if validation_issues else "authentication error"
+            root_cause = decrypt_error if decrypt_error else ValueError(log_reason)
+            exc_info = None
+            if decrypt_error:
+                exc_info = (type(decrypt_error), decrypt_error, decrypt_error.__traceback__)
+
+            logger.error(
+                "Master key decryption failed (%s)",
+                log_reason,
+                exc_info=exc_info
+            )
+            raise ValueError("Decryption failed - invalid PIN or data") from root_cause
+
+        return plaintext
 
     def create_verification_marker(
         self,
