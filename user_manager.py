@@ -18,6 +18,7 @@ Security Notes:
 import re
 import logging
 import hmac
+import unicodedata
 from typing import Optional, Tuple, Dict
 from dataclasses import dataclass
 
@@ -50,6 +51,52 @@ class PasswordPolicy:
 class ValidationError(Exception):
     """Raised when validation fails"""
     pass
+
+
+EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+
+def validate_email(email: str) -> str:
+    """Normalize and validate email addresses.
+
+    Args:
+        email: Email address string.
+
+    Returns:
+        Normalized email address.
+
+    Raises:
+        ValidationError: If the email address is malformed or suspicious.
+    """
+
+    if not isinstance(email, str):
+        raise ValidationError("Email address must be a string")
+
+    normalized = unicodedata.normalize("NFKC", email or "").strip()
+
+    if not normalized or len(normalized) < 3:
+        raise ValidationError("Email address is too short")
+
+    if len(normalized) > 254:  # RFC 5321 limit
+        raise ValidationError("Email address is too long")
+
+    if not EMAIL_PATTERN.fullmatch(normalized):
+        raise ValidationError("Invalid email address format")
+
+    try:
+        local_part, domain = normalized.rsplit("@", 1)
+    except ValueError as exc:
+        raise ValidationError("Invalid email address format") from exc
+
+    try:
+        ascii_domain = domain.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValidationError("Invalid email domain") from exc
+
+    if ascii_domain.lower() != domain.lower():
+        raise ValidationError("Potential homograph attack detected")
+
+    return normalized
 
 
 class UserExistsError(Exception):
@@ -115,7 +162,7 @@ class UserManager:
             UserExistsError: Email already registered
         """
         # Step 1: Validate all inputs
-        self.validate_email(email)
+        normalized_email = self.validate_email(email)
         self.validate_password(password)
         self.pin_manager.validate_pin_format(pin)
 
@@ -125,22 +172,13 @@ class UserManager:
             )
 
         # Step 2: Hash email for storage and lookup
-        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
-        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
-
-
-        # Step 2: Hash email for storage and lookup
-        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
-        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
-
-        # Step 2: Hash email for storage and lookup
-        email_hash, email_salt = self.pin_manager.hash_email_for_storage(email)
-        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+        email_hash, email_salt = self.pin_manager.hash_email_for_storage(normalized_email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(normalized_email)
 
         # Check if user already exists (peppered hash first, legacy fallback)
         existing_user = self.db.get_user_by_email_lookup_hash(email_lookup_hash)
         if not existing_user:
-            legacy_hash = self.pin_manager.hash_email_legacy(email)
+            legacy_hash = self.pin_manager.hash_email_legacy(normalized_email)
             existing_user = self.db.get_user_by_email_hash(legacy_hash)
         if existing_user:
             raise UserExistsError(f"An account with this email already exists")
@@ -203,26 +241,10 @@ class UserManager:
             secure_wipe(bytearray(password, 'utf-8'))
             secure_wipe(bytearray(pin, 'utf-8'))
 
-    def validate_email(self, email: str) -> None:
-        """
-        Validate email address format.
+    def validate_email(self, email: str) -> str:
+        """Validate and normalize an email address."""
 
-        Args:
-            email: Email address to validate
-
-        Raises:
-            ValidationError: Invalid email format
-        """
-        if not email or len(email) < 3:
-            raise ValidationError("Email address is too short")
-
-        if len(email) > 254:  # RFC 5321
-            raise ValidationError("Email address is too long")
-
-        # Basic email regex (not perfect but good enough)
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, email):
-            raise ValidationError("Invalid email address format")
+        return validate_email(email)
 
     def validate_password(self, password: str) -> None:
         """
@@ -595,12 +617,13 @@ class UserManager:
         Returns:
             User object or None if not found
         """
-        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+        normalized_email = validate_email(email)
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(normalized_email)
         user = self.db.get_user_by_email_lookup_hash(email_lookup_hash)
         if user:
             return user
 
-        legacy_hash = self.pin_manager.hash_email_legacy(email)
+        legacy_hash = self.pin_manager.hash_email_legacy(normalized_email)
         return self.db.get_user_by_email_hash(legacy_hash)
 
     def user_exists(self, email: str) -> bool:
