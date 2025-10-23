@@ -47,11 +47,11 @@ This roadmap distills the remaining work required to confidently ship the Secure
 
 ## 2. Release-Blocking Defects
 The following defects must be addressed before a production cut:
-- [ ] Fix `SecureMemory.zero` dereferencing `None`.
-- [ ] Add missing `threading` import in `hardware_rng`.
-- [ ] Correct wiping behavior in the entropy accumulator.
-- [ ] Add context-manager support to `secure_alloc`.
-- [ ] Resolve the syntax error in `auth_database.py`.
+- [x] Fix `SecureMemory.zero` dereferencing `None`.
+- [x] Add missing `threading` import in `hardware_rng`.
+- [x] Correct wiping behavior in the entropy accumulator.
+- [x] Add context-manager support to `secure_alloc`.
+- [x] Resolve the syntax error in `auth_database.py`.
 
 ## 3. Operational Readiness
 

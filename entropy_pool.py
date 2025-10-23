@@ -138,45 +138,42 @@ class EntropyAccumulator:
             current_time = time.time()
             if current_time - self.last_reseed < 0.1:  # 100ms minimum between reseeds
                 return False
-                
+
             # Find all ready pools
-            ready_pools = [i for i, pool in enumerate(self.pools) 
+            ready_pools = [i for i, pool in enumerate(self.pools)
                           if pool.state == PoolState.READY]
-            
+
             if not ready_pools:
                 return False
-            
+
             # Combine data from ready pools
             combined = bytearray()
             for pool_num in ready_pools:
                 pool = self.pools[pool_num]
                 with pool.data.lock():
-                    combined.extend(pool.data.read())
+                    data = pool.data.read()
+                    if data:
+                        combined.extend(data)
                     pool.data.clear()
                     pool.size = 0
                     pool.state = PoolState.EMPTY
 
             # Update the key using SHA-512
             with self.key.lock():
+                current_key = bytearray(self.key.read())
                 hasher = hashlib.sha512()
-                key_material = bytearray(self.key.read())
-                hasher.update(key_material)
+                hasher.update(current_key)
                 hasher.update(combined)
                 new_key = bytearray(hasher.digest())
-                self.key.write(new_key)
-                secure_wipe(key_material)
+                self.key.write(bytes(new_key))
+                secure_wipe(current_key)
                 secure_wipe(new_key)
-                key_material = self.key.read()
-                hasher.update(key_material)
-                hasher.update(combined)
-                new_key = hasher.digest()
-                self.key.write(new_key)
-                secure_wipe(bytearray(key_material))
+
             secure_wipe(combined)
 
             self.counter += 1
             self.last_reseed = current_time
-            
+
             logger.debug(f"Reseeding completed (counter: {self.counter}, pools used: {len(ready_pools)})")
             return True
     
@@ -200,40 +197,34 @@ class EntropyAccumulator:
             # Generate random data using the current key and counter
             result = bytearray()
             remaining = num_bytes
-            
+
             while remaining > 0:
                 # Generate a block of random data
                 with self.key.lock():
-                    hasher = hashlib.sha512()
                     key_material = bytearray(self.key.read())
-                    counter_bytes = self.counter.to_bytes(8, 'big')
-                    hasher.update(key_material)
-                    hasher.update(counter_bytes)
-                    block = bytearray(hasher.digest())
-                    key_material = self.key.read()
-                    hasher.update(key_material)
-                    hasher.update(self.counter.to_bytes(8, 'big'))
-                    block = hasher.digest()
+                    counter_bytes = self.counter.to_bytes(16, 'big')
 
-                    # Update the key for the next iteration
-                    hasher = hashlib.sha512()
-                    hasher.update(key_material)
-                    hasher.update(block)
-                    next_key = bytearray(hasher.digest())
-                    self.key.write(next_key)
+                    block_hasher = hashlib.sha512()
+                    block_hasher.update(key_material)
+                    block_hasher.update(counter_bytes)
+                    block = bytearray(block_hasher.digest())
+
+                    key_hasher = hashlib.sha512()
+                    key_hasher.update(key_material)
+                    key_hasher.update(block)
+                    new_key = bytearray(key_hasher.digest())
+                    self.key.write(bytes(new_key))
+
                     secure_wipe(key_material)
-                    secure_wipe(next_key)
-                    self.key.write(hasher.digest())
-                    secure_wipe(bytearray(key_material))
+                    secure_wipe(new_key)
 
                     self.counter += 1
 
                 # Add as much as we need from this block
                 take = min(remaining, len(block))
-                result.extend(memoryview(block)[:take])
+                result.extend(block[:take])
                 remaining -= take
                 secure_wipe(block)
-                secure_wipe(bytearray(block))
 
             return bytes(result[:num_bytes])
     
