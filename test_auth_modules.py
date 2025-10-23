@@ -4,6 +4,8 @@ import json
 import os
 import tempfile
 import threading
+import unittest
+from datetime import datetime
 import time
 import unittest
 from datetime import timedelta
@@ -13,6 +15,9 @@ from unittest import mock
 from auth_database import AuthDatabase
 from auth_manager import (
     AuthManager,
+    AuthSession,
+    InvalidCredentialsError,
+    SessionExpiredError,
     InvalidCredentialsError,
     SessionExpiredError,
 from auth_manager import AuthManager, InvalidCredentialsError, SessionExpiredError
@@ -276,6 +281,77 @@ class AuthenticationTestCase(unittest.TestCase):
         self.assertTrue(errors)
         self.assertIsInstance(errors[0], SessionExpiredError)
         self.assertEqual(previous_activity, session.last_activity)
+
+    def test_concurrent_master_key_access_blocks_logout(self) -> None:
+        """Master key reads and logout operations should be serialized per session."""
+
+        email = "charlie@example.com"
+        password = "C0ncurrentPass!"
+        pin = "123789"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+        session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
+
+        access_started = threading.Event()
+        release_access = threading.Event()
+        logout_completed = threading.Event()
+        results = []
+        errors = []
+
+        original_get_master_key = AuthSession.get_master_key
+
+        def instrumented_get_master_key(self: AuthSession) -> bytes:
+            with self._lock:
+                access_started.set()
+                if not release_access.wait(timeout=2):
+                    raise TimeoutError("Timed out waiting to resume master key access")
+
+                if self.is_expired():
+                    raise SessionExpiredError("Session has expired")
+
+                if self._master_key is None:
+                    raise SessionExpiredError("Session has ended")
+
+                self.last_activity = datetime.now()
+                return bytes(self._master_key)
+
+        AuthSession.get_master_key = instrumented_get_master_key  # type: ignore[assignment]
+        self.addCleanup(lambda: setattr(AuthSession, "get_master_key", original_get_master_key))
+        self.addCleanup(release_access.set)
+
+        def read_master_key() -> None:
+            try:
+                results.append(session.get_master_key())
+            except Exception as exc:  # pragma: no cover - defensive
+                errors.append(exc)
+
+        key_thread = threading.Thread(target=read_master_key)
+        key_thread.start()
+
+        self.assertTrue(access_started.wait(timeout=2))
+
+        def perform_logout() -> None:
+            self.auth_manager.logout(session.session_id)
+            logout_completed.set()
+
+        logout_thread = threading.Thread(target=perform_logout)
+        logout_thread.start()
+
+        self.assertFalse(logout_completed.wait(timeout=0.2))
+
+        release_access.set()
+
+        key_thread.join(timeout=2)
+        logout_thread.join(timeout=2)
+
+        self.assertFalse(key_thread.is_alive())
+        self.assertFalse(logout_thread.is_alive())
+
+        self.assertTrue(logout_completed.is_set())
+        self.assertFalse(errors)
+        self.assertEqual(1, len(results))
+        self.assertEqual(32, len(results[0]))
+        self.assertIsNone(self.auth_manager.get_session(session.session_id))
 
     def test_rate_limiter_enforces_lockout(self) -> None:
         """Repeated invalid attempts trigger an account lockout."""
