@@ -55,6 +55,8 @@ class EntropyMetrics:
         chi_square: Chi-square test p-value
         runs_test: Runs test p-value
         spectral_test: Spectral test p-value
+        cumulative_sums_forward: Cumulative sums (forward) test p-value
+        cumulative_sums_reverse: Cumulative sums (reverse) test p-value
         health_score: Composite health score (0-100)
         source: Source of the entropy sample
         timestamp: When the sample was taken
@@ -86,6 +88,8 @@ class EntropyMetrics:
     runs_test: float = 0.0
     spectral_test: float = 0.0
     autocorrelation: float = 0.0
+    cumulative_sums_forward: float = 0.0
+    cumulative_sums_reverse: float = 0.0
     
     # Advanced metrics
     entropy_rate: float = 0.0
@@ -107,6 +111,8 @@ class EntropyMetrics:
             'runs_test': self.runs_test,
             'spectral_test': self.spectral_test,
             'autocorrelation': self.autocorrelation,
+            'cumulative_sums_forward': self.cumulative_sums_forward,
+            'cumulative_sums_reverse': self.cumulative_sums_reverse,
             'entropy_rate': self.entropy_rate,
             'compression_ratio': self.compression_ratio,
             'predictive_entropy': self.predictive_entropy,
@@ -183,6 +189,7 @@ class EntropyMonitor:
             'chi_square': (0.01, 0.99),  # Acceptable chi-square p-value range
             'runs_test': 0.01,  # Minimum p-value for runs test
             'spectral_test': 0.01,  # Minimum p-value for spectral test
+            'cumulative_sums': 0.01,  # Minimum p-value for cumulative sums tests
             
             # Advanced metrics
             'autocorrelation': (-0.1, 0.1),  # Acceptable autocorrelation range at lag 1
@@ -322,6 +329,49 @@ class EntropyMonitor:
         x = arr[lag:] - np.mean(arr)
         y = arr[:-lag] - np.mean(arr)
         return float(np.sum(x * y) / (np.sum(x**2) * np.sum(y**2))**0.5)
+
+    def _cumulative_sums_test(self, bits: np.ndarray) -> Tuple[float, float]:
+        """Perform the NIST cumulative sums test in forward and reverse directions."""
+
+        def _direction_test(bit_sequence: np.ndarray) -> float:
+            if bit_sequence.size == 0:
+                return 0.0
+
+            converted = 2 * bit_sequence.astype(np.int32) - 1
+            partial_sums = np.cumsum(converted)
+            z = float(np.max(np.abs(partial_sums)))
+
+            if z == 0.0:
+                return 1.0
+
+            n = bit_sequence.size
+            sqrt_n = math.sqrt(n)
+            denominator = sqrt_n * math.sqrt(2.0)
+
+            def _summation(start: float, end: float, offset: int) -> float:
+                first = int(math.ceil(start))
+                last = int(math.floor(end))
+                if last < first:
+                    return 0.0
+                total = 0.0
+                for k in range(first, last + 1):
+                    total += math.erfc((4 * k + offset) * z / denominator)
+                return total
+
+            start1 = (-n / z + 1.0) / 4.0
+            end1 = (n / z - 1.0) / 4.0
+            sum1 = _summation(start1, end1, 1)
+
+            start2 = (-n / z - 3.0) / 4.0
+            end2 = (n / z - 1.0) / 4.0
+            sum2 = _summation(start2, end2, 3)
+
+            p_value = 1.0 - sum1 + sum2
+            return max(0.0, min(1.0, p_value))
+
+        forward = _direction_test(bits)
+        reverse = _direction_test(bits[::-1])
+        return forward, reverse
     
     def _estimate_compression_ratio(self, data: bytes) -> float:
         """Estimate compression ratio using zlib"""
@@ -431,6 +481,8 @@ class EntropyMonitor:
         chi_square = np.sum((value_counts - expected) ** 2 / expected)
         metrics.chi_square = float(chi_square)
         
+        bits = np.unpackbits(arr) if n > 0 else np.array([], dtype=np.uint8)
+
         # Runs test (Wald-Wolfowitz)
         if n > 1:
             diffs = np.diff(arr)
@@ -439,20 +491,24 @@ class EntropyMonitor:
             var_runs = (16 * n - 29) / 90
             z = (runs - expected_runs) / math.sqrt(var_runs)
             metrics.runs_test = float(2 * (1 - 0.5 * (1 + math.erf(abs(z) / math.sqrt(2.0)))))
-            
+
             # Calculate longest run of identical bits
-            bits = np.unpackbits(arr)
             if len(bits) > 0:
                 diffs = np.diff(bits, prepend=1-bits[0])
                 run_starts = np.where(diffs != 0)[0]
                 run_lengths = np.diff(np.append(run_starts, len(bits)))
                 metrics.longest_run = int(np.max(run_lengths) if len(run_lengths) > 0 else 0)
-        
+
         # Spectral test (simplified)
         if n > 1:
             fft = np.fft.fft(arr - metrics.mean)
             spectral = np.mean(np.abs(fft[1:n//2]) ** 2)
             metrics.spectral_test = float(spectral)
+
+        if bits.size > 0:
+            forward_p, reverse_p = self._cumulative_sums_test(bits)
+            metrics.cumulative_sums_forward = forward_p
+            metrics.cumulative_sums_reverse = reverse_p
         
         # Autocorrelation at lag 1
         if n > 1:
@@ -491,7 +547,13 @@ class EntropyMonitor:
         if metrics.shannon_entropy > 0:
             predictive_penalty = (1 - metrics.predictive_entropy) * 20
             score -= predictive_penalty
-            
+
+        cumulative_threshold = self.health_thresholds.get('cumulative_sums', 0.01)
+        if metrics.cumulative_sums_forward < cumulative_threshold:
+            score -= (cumulative_threshold - metrics.cumulative_sums_forward) * 200
+        if metrics.cumulative_sums_reverse < cumulative_threshold:
+            score -= (cumulative_threshold - metrics.cumulative_sums_reverse) * 200
+
         # Ensure score is within bounds
         score = max(0, min(100, score))
         return score
