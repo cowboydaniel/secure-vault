@@ -12,19 +12,6 @@ from instance_guard import InstanceGuard, TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
 from user_manager import UserManager, UserExistsError
-import os
-import tempfile
-import unittest
-
-from auth_database import AuthDatabase
-from auth_manager import AuthManager, InvalidCredentialsError
-from instance_guard import TamperDetectedError
-from pin_manager import PINManager, PINValidationError
-from rate_limiter import AccountLockedError, RateLimitError
-from user_manager import UserManager, UserExistsError
-from pin_manager import PINManager, PINValidationError
-from rate_limiter import AccountLockedError
-from user_manager import UserManager
 
 
 class AuthenticationTestCase(unittest.TestCase):
@@ -37,8 +24,6 @@ class AuthenticationTestCase(unittest.TestCase):
         os.environ["SECURE_VAULT_STATE_DIR"] = self.state_dir
         self.db_path = os.path.join(self.temp_dir.name, "users.db")
         self.db = AuthDatabase(db_path=self.db_path)
-        db_path = os.path.join(self.temp_dir.name, "users.db")
-        self.db = AuthDatabase(db_path=db_path)
         self.auth_manager = AuthManager(db=self.db)
         self.user_manager: UserManager = self.auth_manager.user_manager
 
@@ -163,6 +148,42 @@ class AuthenticationTestCase(unittest.TestCase):
 
         with self.assertRaises(RateLimitError):
             self.auth_manager.authenticate_with_pin(email=target_email, pin="000000")
+
+    def test_aliases_share_device_limits(self) -> None:
+        """Email aliases from the same device share throttling state."""
+
+        email = "carol@example.com"
+        alias = "carol+spam@example.com"
+        password = "ComplexP@ss123!"
+        pin = "482951"
+        ip_address = "203.0.113.5"
+        device_fingerprint = "device-test-001"
+        user_agent = "SecureVaultTests/1.0"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+
+        limiter = self.auth_manager.rate_limiter
+        limiter.config.max_email_attempts = 2
+        limiter.config.email_window_seconds = 600
+
+        for _ in range(limiter.config.max_email_attempts):
+            with self.assertRaises(InvalidCredentialsError):
+                self.auth_manager.authenticate_with_pin(
+                    email=alias,
+                    pin="000000",
+                    ip_address=ip_address,
+                    device_fingerprint=device_fingerprint,
+                    user_agent=user_agent,
+                )
+
+        with self.assertRaises(RateLimitError):
+            self.auth_manager.authenticate_with_pin(
+                email=email,
+                pin=pin,
+                ip_address=ip_address,
+                device_fingerprint=device_fingerprint,
+                user_agent=user_agent,
+            )
 
     def test_lockdown_when_database_missing(self) -> None:
         """Deleting the authentication database triggers tamper lockdown."""
