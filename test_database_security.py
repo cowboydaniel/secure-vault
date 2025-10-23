@@ -55,8 +55,10 @@ class DatabaseSecurityTests(unittest.TestCase):
         state_dir.mkdir(parents=True, exist_ok=True)
 
         previous_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        previous_wrap_secret = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
         os.environ["SECURE_VAULT_STATE_DIR"] = str(state_dir)
-        self.addCleanup(self._restore_state_dir, previous_state_dir)
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "db-test-wrap"
+        self.addCleanup(self._restore_env, previous_state_dir, previous_wrap_secret)
 
         db = AuthDatabase(db_path=str(db_path))
         conn = db._get_connection()
@@ -77,8 +79,10 @@ class DatabaseSecurityTests(unittest.TestCase):
         state_dir.mkdir(parents=True, exist_ok=True)
 
         previous_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        previous_wrap_secret = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
         os.environ["SECURE_VAULT_STATE_DIR"] = str(state_dir)
-        self.addCleanup(self._restore_state_dir, previous_state_dir)
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "db-test-wrap"
+        self.addCleanup(self._restore_env, previous_state_dir, previous_wrap_secret)
 
         db = AuthDatabase(db_path=str(db_path))
 
@@ -96,11 +100,16 @@ class DatabaseSecurityTests(unittest.TestCase):
             self.assertFalse(path.exists())
 
     @staticmethod
-    def _restore_state_dir(previous: Optional[str]) -> None:
-        if previous is None:
+    def _restore_env(previous_state_dir: Optional[str], previous_wrap: Optional[str]) -> None:
+        if previous_state_dir is None:
             os.environ.pop("SECURE_VAULT_STATE_DIR", None)
         else:
-            os.environ["SECURE_VAULT_STATE_DIR"] = previous
+            os.environ["SECURE_VAULT_STATE_DIR"] = previous_state_dir
+
+        if previous_wrap is None:
+            os.environ.pop("SECURE_VAULT_GUARD_WRAP_SECRET", None)
+        else:
+            os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = previous_wrap
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution

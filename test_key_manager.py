@@ -104,6 +104,10 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
 class TestFileBasedHSMSecretWrapping(unittest.TestCase):
     def test_local_master_secret_guard_wrapped(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-hsm-wrap",
+                }):
                 mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             keys_dir = Path(tmpdir) / "keys"
             metadata_file = Path(tmpdir) / "metadata.json"

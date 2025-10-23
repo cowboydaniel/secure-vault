@@ -1,15 +1,14 @@
 """Unit tests for SecureVault authentication components."""
 
+import base64
 import concurrent.futures
 import json
 import os
 import tempfile
 import threading
-import unittest
-from datetime import datetime
 import time
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -52,6 +51,8 @@ class AuthenticationTestCase(unittest.TestCase):
         self.state_dir = os.path.join(self.temp_dir.name, "state")
         self._prev_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
         os.environ["SECURE_VAULT_STATE_DIR"] = self.state_dir
+        self._prev_wrap_secret = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "test-guard-wrap-secret"
         self.db_path = os.path.join(self.temp_dir.name, "users.db")
         self.db = AuthDatabase(db_path=self.db_path, pool_size=3)
         self.db = AuthDatabase(db_path=self.db_path)
@@ -65,6 +66,10 @@ class AuthenticationTestCase(unittest.TestCase):
             os.environ["SECURE_VAULT_STATE_DIR"] = self._prev_state_dir
         else:
             os.environ.pop("SECURE_VAULT_STATE_DIR", None)
+        if self._prev_wrap_secret is not None:
+            os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = self._prev_wrap_secret
+        else:
+            os.environ.pop("SECURE_VAULT_GUARD_WRAP_SECRET", None)
         self.temp_dir.cleanup()
 
     def test_pin_manager_round_trip(self) -> None:
@@ -667,6 +672,57 @@ class AuthenticationTestCase(unittest.TestCase):
 
         with self.assertRaises(TamperDetectedError):
             AuthDatabase(db_path=self.db_path)
+
+    def test_guard_secret_stored_encrypted(self) -> None:
+        """Guard state should never persist the raw secret in plaintext."""
+
+        guard = InstanceGuard(self.db_path)
+        secret = guard.get_secret()
+        self.assertEqual(32, len(secret))
+
+        state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME
+        with state_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        self.assertNotIn("secret", data)
+        wrapped = data.get("secret_wrapped")
+        self.assertIsInstance(wrapped, dict)
+        if isinstance(wrapped, dict):
+            self.assertEqual(wrapped.get("version"), InstanceGuard.SECRET_PAYLOAD_VERSION)
+            serialized = json.dumps(wrapped)
+            self.assertNotIn(base64.b64encode(secret).decode("ascii"), serialized)
+
+    def test_guard_migrates_legacy_secret_file(self) -> None:
+        """Legacy plaintext guard secrets are sealed on next startup."""
+
+        guard = InstanceGuard(self.db_path)
+        secret = guard.get_secret()
+        state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME
+
+        with state_path.open("r", encoding="utf-8") as handle:
+            state_data = json.load(handle)
+
+        state_data["secret"] = base64.b64encode(secret).decode("ascii")
+        state_data.pop("secret_wrapped", None)
+
+        tmp_path = state_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(state_data, handle, indent=2, sort_keys=True)
+        os.replace(tmp_path, state_path)
+        os.chmod(state_path, 0o600)
+
+        reloaded = InstanceGuard(self.db_path)
+        try:
+            rewrapped_secret = reloaded.get_secret()
+        finally:
+            del reloaded
+
+        with state_path.open("r", encoding="utf-8") as handle:
+            rewritten = json.load(handle)
+
+        self.assertNotIn("secret", rewritten)
+        self.assertIn("secret_wrapped", rewritten)
+        self.assertEqual(secret, rewrapped_secret)
 
 
 

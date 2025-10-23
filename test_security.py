@@ -222,6 +222,10 @@ class TestAuditLoggerSanitization(unittest.TestCase):
 
     def test_log_entries_are_sanitized(self):
         with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
                 mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
@@ -275,6 +279,10 @@ class TestAuditLoggerSanitization(unittest.TestCase):
 
     def test_audit_key_and_chain_wrapped(self):
         with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
                 mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
@@ -310,6 +318,55 @@ class TestAuditLoggerSanitization(unittest.TestCase):
             reopened = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
             try:
                 self.assertEqual(reopened._last_hash, first_hash)
+            reopened.log_event(
+                AuditEventType.SYSTEM_START,
+                AuditSeverity.INFO,
+                "restarted",
+                {},
+            )
+        finally:
+            reopened.close()
+
+    def test_audit_missing_chain_detected(self):
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
+            log_dir = os.path.join(tmpdir, 'logs')
+            auth_db_path = os.path.join(tmpdir, 'users.db')
+            logger = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+            try:
+                logger.log_event(
+                    AuditEventType.SYSTEM_START,
+                    AuditSeverity.INFO,
+                    "system start",
+                    {},
+                )
+            finally:
+                logger.close()
+
+            chain_file = Path(log_dir) / '.audit_log.chain'
+            self.assertTrue(chain_file.exists())
+            chain_file.unlink()
+
+            with self.assertRaises(RuntimeError):
+                AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+
+    def test_audit_plaintext_material_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
+            log_dir = os.path.join(tmpdir, 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            key_file = Path(log_dir) / '.audit_log.key'
+            key_file.write_text(base64.b64encode(os.urandom(64)).decode('ascii'))
+            auth_db_path = os.path.join(tmpdir, 'users.db')
+
+            with self.assertRaises(RuntimeError):
+                AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
                 reopened.log_event(
                     AuditEventType.SYSTEM_START,
                     AuditSeverity.INFO,

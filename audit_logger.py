@@ -339,6 +339,7 @@ class AuditLogger:
         self._auth_db_path = auth_db_path
         self._external_wrap_secret = bytes(key_wrap_secret) if key_wrap_secret else None
         self._guard_secret: Optional[bytes] = None
+        self._existing_key_material = False
 
         # Create log directory if it doesn't exist and restrict permissions
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -513,6 +514,9 @@ class AuditLogger:
                 )
                 raise
 
+        raise RuntimeError(
+            f"Unprotected audit material detected in {path}; manual recovery required"
+        )
         return raw_data, False
 
     def _load_encryption_material(self) -> (bytes, bytes):
@@ -520,6 +524,8 @@ class AuditLogger:
         key_file = self.log_dir / self.KEY_FILE_NAME
 
         if key_file.exists():
+            self._existing_key_material = True
+            data, _ = self._load_wrapped_payload(
             data, wrapped = self._load_wrapped_payload(
                 key_file,
                 salt=self.KEY_WRAP_SALT,
@@ -529,6 +535,14 @@ class AuditLogger:
             )
             if len(data) != 128:
                 raise ValueError("Invalid audit log key material length")
+            return data[:64], data[64:]
+
+        chain_path = self.log_dir / self.CHAIN_FILE_NAME
+        if chain_path.exists() or any(self.log_dir.glob('*.log*')):
+            raise RuntimeError(
+                "Audit key material missing while audit history exists; tampering suspected"
+            )
+
             if not wrapped:
                 self._store_wrapped_payload(
                     data,
@@ -548,11 +562,19 @@ class AuditLogger:
             info=self.KEY_WRAP_INFO,
             version=self.KEY_FILE_VERSION,
         )
+        self._existing_key_material = False
         return key, iv
 
     def _load_chain_state(self) -> bytes:
         chain_file = self.log_dir / self.CHAIN_FILE_NAME
         if not chain_file.exists():
+            if self._existing_key_material:
+                raise RuntimeError(
+                    "Audit chain state missing despite existing key material; tampering suspected"
+                )
+            return b'\x00' * 32
+
+        data, _ = self._load_wrapped_payload(
             return b'\x00' * 32
 
         data, wrapped = self._load_wrapped_payload(
