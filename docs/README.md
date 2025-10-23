@@ -4,6 +4,14 @@ A revolutionary encryption system that combines multiple layers of security to p
 
 ## 🔒 Security Features
 
+## 📣 Release Status
+- **Current Linux release:** v1.0.0 (2024-07-08)
+- **Release validation log:** [`logs/security_release_validation_2024-07-08.log`](../logs/security_release_validation_2024-07-08.log)
+- **Security release notes:** [`docs/SECURITY_RELEASE_NOTES_v1.md`](SECURITY_RELEASE_NOTES_v1.md)
+
+The v1.0.0 milestone reflects the completion of the operational readiness,
+security hardening, and documentation work captured in `docs/v1_roadmap.md`.
+
 ### Automatic Backup Security
 - **End-to-End Encryption**: All backups are encrypted before being written to disk
 - **Secure Key Handling**: Backup keys are generated using cryptographically secure RNG

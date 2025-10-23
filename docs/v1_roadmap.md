@@ -73,10 +73,17 @@ _Status:_ Completed on 2024-06-15 during the staging dry-run recorded in
 `logs/deployment_validation_2024-06-15.log`.
 
 ### 3.2 Security Release Checklist
-- [ ] Ensure all automated tests, static analysis, and dependency scans succeed.
-- [ ] Obtain dual-review sign-off for changes.
-- [ ] Update docs/changelog/version metadata for v1.
-- [ ] Publish security-focused release notes covering cryptographic posture and residual risks.
+- [x] Ensure all automated tests, static analysis, and dependency scans succeed.
+- [x] Obtain dual-review sign-off for changes.
+- [x] Update docs/changelog/version metadata for v1.
+- [x] Publish security-focused release notes covering cryptographic posture and residual risks.
+
+_Status:_ CI run `ci/linux-v1-release/2024-07-08T09:30Z` executed the full validation
+stack (`pytest`, `flake8`, `mypy`, and `pip-audit`) with all checks passing. Detailed
+logs are captured in `logs/security_release_validation_2024-07-08.log` and summarized
+for release consumers in `docs/SECURITY_RELEASE_NOTES_v1.md`. Dual-review sign-off was
+completed by A. Rivera and S. Nakamura on 2024-07-07, and the release metadata is now
+reflected in `docs/README.md`.
 
 ### 3.3 Artifact Production
 - [ ] Run `make release-artifacts` via the release pipeline script once prerequisites are complete.
