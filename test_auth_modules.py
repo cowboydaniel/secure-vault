@@ -412,6 +412,23 @@ class AuthenticationTestCase(unittest.TestCase):
         with self.assertRaises(TamperDetectedError):
             AuthDatabase(db_path=self.db_path)
 
+    def test_missing_guard_state_with_existing_db_triggers_lockdown(self) -> None:
+        """Removing guard state while keeping the database should lock down."""
+
+        self.user_manager.create_user(
+            email="owner@example.com",
+            password="Secur3OwnerPass!",
+            pin="746291",
+        )
+
+        state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME
+        state_path.unlink()
+
+        self.db.close()
+
+        with self.assertRaises(TamperDetectedError):
+            AuthDatabase(db_path=self.db_path)
+
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience
