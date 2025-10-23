@@ -1,79 +1,55 @@
-"""
-Clipboard security manager for SecureVault.
-Automatically clears clipboard after a specified timeout.
-"""
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer, QObject, pyqtSignal
+"""Backward-compatible wrapper around :class:`SecureClipboard`."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from PyQt6.QtCore import QObject, pyqtSignal
+
+from .secure_clipboard import SecureClipboard
 
 
 class ClipboardSecurityManager(QObject):
-    """Manager for secure clipboard operations."""
+    """Compatibility wrapper that exposes the legacy manager API."""
 
     clipboard_cleared = pyqtSignal()
 
-    def __init__(self, timeout_ms=30000, parent=None):
-        """Initialize the clipboard security manager.
-
-        Args:
-            timeout_ms: Time in milliseconds before clearing clipboard (default: 30000ms = 30s)
-            parent: Parent QObject
-        """
+    def __init__(self, timeout_ms: int = 30000, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self.timeout_ms = timeout_ms
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.clear_clipboard)
-        self.clipboard = QApplication.clipboard()
-        self.last_text = ""
+        self._secure_clipboard = SecureClipboard(
+            timeout_seconds=timeout_ms / 1000.0,
+            parent=self,
+        )
+        self._secure_clipboard.cleared.connect(self.clipboard_cleared.emit)
 
-        # Monitor clipboard changes
-        self.clipboard.dataChanged.connect(self.on_clipboard_changed)
+    def copy_secure(self, text: Optional[str], timeout_ms: Optional[int] = None) -> None:
+        """Copy ``text`` to the clipboard and schedule automatic clearing."""
 
-    def on_clipboard_changed(self):
-        """Handle clipboard content changes."""
-        # Restart timer when clipboard changes
-        if self.timer.isActive():
-            self.timer.stop()
+        timeout_seconds = None if timeout_ms is None else timeout_ms / 1000.0
+        self._secure_clipboard.copy(text, timeout_seconds=timeout_seconds)
 
-        # Only start timer if clipboard has text
-        if self.clipboard.text():
-            self.last_text = self.clipboard.text()
-            self.timer.start(self.timeout_ms)
+    def clear_clipboard(self) -> None:
+        """Immediately clear the clipboard."""
 
-    def clear_clipboard(self):
-        """Clear the clipboard."""
-        self.clipboard.clear()
-        self.timer.stop()
-        self.last_text = ""
-        self.clipboard_cleared.emit()
+        self._secure_clipboard.clear()
 
-    def copy_secure(self, text):
-        """Copy text to clipboard with auto-clear enabled.
+    def set_timeout(self, timeout_ms: int) -> None:
+        """Update the default auto-clear timeout."""
 
-        Args:
-            text: Text to copy to clipboard
-        """
-        self.clipboard.setText(text)
-        # Timer will start automatically via on_clipboard_changed
+        self._secure_clipboard.set_timeout(timeout_ms / 1000.0)
 
-    def set_timeout(self, timeout_ms):
-        """Set the auto-clear timeout.
-
-        Args:
-            timeout_ms: Timeout in milliseconds
-        """
-        self.timeout_ms = timeout_ms
-
-        # Restart timer with new timeout if currently active
-        if self.timer.isActive():
-            self.timer.stop()
-            self.timer.start(self.timeout_ms)
-
-    def disable_auto_clear(self):
+    def disable_auto_clear(self) -> None:
         """Disable automatic clipboard clearing."""
-        if self.timer.isActive():
-            self.timer.stop()
 
-    def enable_auto_clear(self):
+        self._secure_clipboard.set_enabled(False)
+
+    def enable_auto_clear(self) -> None:
         """Enable automatic clipboard clearing."""
-        if self.clipboard.text() and not self.timer.isActive():
-            self.timer.start(self.timeout_ms)
+
+        self._secure_clipboard.set_enabled(True)
+
+    @property
+    def secure_clipboard(self) -> SecureClipboard:
+        """Expose the underlying :class:`SecureClipboard` instance."""
+
+        return self._secure_clipboard

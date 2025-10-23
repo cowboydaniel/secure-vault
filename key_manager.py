@@ -9,6 +9,8 @@ interface for the Secure Vault application.
 import os
 import logging
 import time
+import threading
+from contextvars import ContextVar
 from typing import Optional, Dict, Any, Tuple, List, Union
 from dataclasses import dataclass
 from enum import Enum
@@ -280,7 +282,13 @@ class KeyManager:
             },
             **(config or {})
         }
-        
+
+        self._lock = threading.RLock()
+        self._metadata_version = 0
+        self._metadata_cache_var: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+            "key_manager_metadata_cache",
+            default=None
+        )
         self._hsm = None
         self._hsm_available = False
         self._key_metadata: Dict[str, KeyMetadata] = {}
@@ -317,6 +325,26 @@ class KeyManager:
                 logger.info("Attempting recovery from backup...")
                 self._attempt_recovery()
             raise
+
+    def _invalidate_metadata_cache(self) -> None:
+        """Invalidate cached metadata snapshots for the current context."""
+        self._metadata_version += 1
+        self._metadata_cache_var.set(None)
+
+    def _get_thread_metadata_snapshot(self) -> Dict[str, KeyMetadata]:
+        """Return a thread-specific snapshot of the key metadata."""
+        cache_state = self._metadata_cache_var.get()
+        with self._lock:
+            current_version = self._metadata_version
+            if cache_state and cache_state.get('version') == current_version:
+                return cache_state['snapshot']  # type: ignore[index]
+            snapshot = {
+                key: KeyMetadata.from_dict(metadata.to_dict())
+                for key, metadata in self._key_metadata.items()
+            }
+        cache_state = {'version': current_version, 'snapshot': snapshot}
+        self._metadata_cache_var.set(cache_state)
+        return snapshot
     
     def _init_hsm(self) -> None:
         """Initialize HSM connection and backup manager"""
@@ -361,44 +389,49 @@ class KeyManager:
             if self._metadata_file.exists():
                 with open(self._metadata_file, 'r') as f:
                     data = json.load(f)
+                with self._lock:
                     self._key_metadata = {
-                        k: KeyMetadata.from_dict(v) 
+                        k: KeyMetadata.from_dict(v)
                         for k, v in data.items()
                     }
+                    self._invalidate_metadata_cache()
         except Exception as e:
             logger.error(f"Failed to load key metadata: {e}")
-            self._key_metadata = {}
+            with self._lock:
+                self._key_metadata = {}
+                self._invalidate_metadata_cache()
     
     def _save_metadata(self) -> None:
         """Save key metadata to disk and create backup if enabled"""
         try:
-            # Save primary metadata file
-            with open(self._metadata_file, 'w') as f:
-                json.dump(
-                    {k: v.to_dict() for k, v in self._key_metadata.items()},
-                    f,
-                    indent=2
-                )
-            os.chmod(self._metadata_file, 0o600)  # Restrict permissions
-            
-            # Create automatic backup if enabled
-            if self.config['backup_enabled']:
-                try:
-                    backup_file = Path(self.config['backup_dir']) / f"metadata_backup_{int(time.time())}.json"
-                    with open(backup_file, 'w') as f:
-                        json.dump(
-                            {k: v.to_dict() for k, v in self._key_metadata.items()},
-                            f,
-                            indent=2
-                        )
-                    os.chmod(backup_file, 0o600)
-                    
-                    # Clean up old backups
-                    self._cleanup_old_backups()
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to create metadata backup: {e}")
-                    
+            with self._lock:
+                # Save primary metadata file
+                with open(self._metadata_file, 'w') as f:
+                    json.dump(
+                        {k: v.to_dict() for k, v in self._key_metadata.items()},
+                        f,
+                        indent=2
+                    )
+                os.chmod(self._metadata_file, 0o600)  # Restrict permissions
+
+                # Create automatic backup if enabled
+                if self.config['backup_enabled']:
+                    try:
+                        backup_file = Path(self.config['backup_dir']) / f"metadata_backup_{int(time.time())}.json"
+                        with open(backup_file, 'w') as f:
+                            json.dump(
+                                {k: v.to_dict() for k, v in self._key_metadata.items()},
+                                f,
+                                indent=2
+                            )
+                        os.chmod(backup_file, 0o600)
+
+                        # Clean up old backups
+                        self._cleanup_old_backups()
+
+                    except Exception as e:
+                        logger.warning(f"Failed to create metadata backup: {e}")
+
         except Exception as e:
             logger.error(f"Failed to save key metadata: {e}")
             if self.config['backup_enabled']:
@@ -425,29 +458,35 @@ class KeyManager:
     
     def activate_key(self, key_id: str, reason: str = "Manual activation") -> bool:
         """Activate a key for use.
-        
+
         Args:
             key_id: ID of the key to activate
             reason: Reason for activation (for audit logging)
-            
+
         Returns:
             bool: True if key was activated, False otherwise
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
-            return False
-            
         try:
-            metadata = self._key_metadata[key_id]
-            if metadata.activate(reason):
+            with self._lock:
+                metadata = self._key_metadata.get(key_id)
+                if metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return False
+
+                if not metadata.activate(reason):
+                    return False
+
+                self._key_metadata[key_id] = metadata
+                self._invalidate_metadata_cache()
                 self._save_metadata()
+
+            if hasattr(self, '_audit_logger'):
                 self._audit_logger.log_key_operation(
                     'activate',
                     key_id,
                     {'reason': reason, 'key_type': metadata.key_type.value}
                 )
-                return True
-            return False
+            return True
         except Exception as e:
             logger.error(f"Failed to activate key {key_id}: {e}")
             return False
@@ -463,14 +502,21 @@ class KeyManager:
         Returns:
             bool: True if key was suspended, False otherwise
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
-            return False
-            
         try:
-            key_metadata = self._key_metadata[key_id]
-            if key_metadata.suspend(reason, metadata):
+            with self._lock:
+                key_metadata = self._key_metadata.get(key_id)
+                if key_metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return False
+
+                if not key_metadata.suspend(reason, metadata):
+                    return False
+
+                self._key_metadata[key_id] = key_metadata
+                self._invalidate_metadata_cache()
                 self._save_metadata()
+
+            if hasattr(self, '_audit_logger'):
                 self._audit_logger.log_key_operation(
                     'suspend',
                     key_id,
@@ -480,8 +526,7 @@ class KeyManager:
                         'metadata': metadata or {}
                     }
                 )
-                return True
-            return False
+            return True
         except Exception as e:
             logger.error(f"Failed to suspend key {key_id}: {e}")
             return False
@@ -497,14 +542,21 @@ class KeyManager:
         Returns:
             bool: True if key was revoked, False otherwise
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
-            return False
-            
         try:
-            key_metadata = self._key_metadata[key_id]
-            if key_metadata.revoke(reason, metadata):
+            with self._lock:
+                key_metadata = self._key_metadata.get(key_id)
+                if key_metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return False
+
+                if not key_metadata.revoke(reason, metadata):
+                    return False
+
+                self._key_metadata[key_id] = key_metadata
+                self._invalidate_metadata_cache()
                 self._save_metadata()
+
+            if hasattr(self, '_audit_logger'):
                 self._audit_logger.log_key_operation(
                     'revoke',
                     key_id,
@@ -514,32 +566,38 @@ class KeyManager:
                         'metadata': metadata or {}
                     }
                 )
-                return True
-            return False
+            return True
         except Exception as e:
             logger.error(f"Failed to revoke key {key_id}: {e}")
             return False
     
-    def expire_key(self, key_id: str, reason: str = "Key expired", 
+    def expire_key(self, key_id: str, reason: str = "Key expired",
                   metadata: Optional[Dict] = None) -> bool:
         """Mark a key as expired.
-        
+
         Args:
             key_id: ID of the key to expire
             reason: Reason for expiration (for audit logging)
             metadata: Additional metadata about the expiration
-            
+
         Returns:
             bool: True if key was marked as expired, False otherwise
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
-            return False
-            
         try:
-            key_metadata = self._key_metadata[key_id]
-            if key_metadata.expire(reason, metadata):
+            with self._lock:
+                key_metadata = self._key_metadata.get(key_id)
+                if key_metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return False
+
+                if not key_metadata.expire(reason, metadata):
+                    return False
+
+                self._key_metadata[key_id] = key_metadata
+                self._invalidate_metadata_cache()
                 self._save_metadata()
+
+            if hasattr(self, '_audit_logger'):
                 self._audit_logger.log_key_operation(
                     'expire',
                     key_id,
@@ -549,25 +607,23 @@ class KeyManager:
                         'metadata': metadata or {}
                     }
                 )
-                return True
-            return False
+            return True
         except Exception as e:
             logger.error(f"Failed to expire key {key_id}: {e}")
             return False
     
     def get_key_state(self, key_id: str) -> Optional[Dict[str, Any]]:
         """Get the current state of a key.
-        
+
         Args:
             key_id: ID of the key
-            
+
         Returns:
             Optional[Dict]: Key state information or None if key not found
         """
-        if key_id not in self._key_metadata:
+        metadata = self._get_thread_metadata_snapshot().get(key_id)
+        if metadata is None:
             return None
-            
-        metadata = self._key_metadata[key_id]
         return {
             'key_id': key_id,
             'state': metadata.state.name,
@@ -578,25 +634,23 @@ class KeyManager:
             'usage_count': metadata.usage_count,
             'enabled': metadata.enabled
         }
-    
+
     def get_key_state_history(self, key_id: str) -> Optional[List[Dict[str, Any]]]:
         """Get the state change history of a key.
-        
+
         Args:
             key_id: ID of the key
-            
+
         Returns:
             Optional[List[Dict]]: List of state changes or None if key not found
         """
-        if key_id not in self._key_metadata:
+        metadata = self._get_thread_metadata_snapshot().get(key_id)
+        if metadata is None:
             return None
-            
-        return self._key_metadata[key_id].get_state_history()
+        return metadata.get_state_history()
             
     def _start_backup_scheduler(self) -> None:
         """Start the periodic backup scheduler"""
-        import threading
-
         def backup_worker():
             while not self._stop_event.is_set():
                 try:
@@ -607,8 +661,10 @@ class KeyManager:
                     
                     if not self._stop_event.is_set():
                         logger.info("Starting scheduled backup...")
+                        with self._lock:
+                            scheduled_key_ids = list(self._key_metadata.keys())
                         self.create_backup(
-                            key_ids=list(self._key_metadata.keys()),
+                            key_ids=scheduled_key_ids,
                             backup_passphrase=self._get_backup_passphrase(),
                             output_path=os.path.join(
                                 self.config['backup_dir'],
@@ -619,15 +675,13 @@ class KeyManager:
                         
                 except Exception as e:
                     logger.error(f"Scheduled backup failed: {e}")
-        
+
         self._stop_event = threading.Event()
         self._backup_thread = threading.Thread(target=backup_worker, daemon=True)
         self._backup_thread.start()
-        
+
     def _start_rotation_checker(self) -> None:
         """Start the periodic rotation checker"""
-        import threading
-
         def rotation_worker():
             while not self._rotation_stop_event.is_set():
                 try:
@@ -683,45 +737,49 @@ class KeyManager:
         Returns:
             bool: True if policy was updated, False otherwise
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
+        try:
+            with self._lock:
+                metadata = self._key_metadata.get(key_id)
+                if metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return False
+
+                # Create new policy or update existing one
+                if metadata.rotation_policy is None:
+                    policy_config = self.config['default_rotation_policy'].copy()
+                    metadata.rotation_policy = RotationPolicy(
+                        max_age_days=max_age_days or policy_config['max_age_days'],
+                        max_usage_count=max_usage_count or policy_config['max_usage_count'],
+                        auto_rotate=auto_rotate if auto_rotate is not None else policy_config['auto_rotate'],
+                        rotation_interval_days=rotation_interval_days or policy_config['rotation_interval_days']
+                    )
+                else:
+                    if max_age_days is not None:
+                        metadata.rotation_policy.max_age_days = max_age_days
+                    if max_usage_count is not None:
+                        metadata.rotation_policy.max_usage_count = max_usage_count
+                    if auto_rotate is not None:
+                        metadata.rotation_policy.auto_rotate = auto_rotate
+                    if rotation_interval_days is not None:
+                        metadata.rotation_policy.rotation_interval_days = rotation_interval_days
+
+                if metadata.rotation_policy:
+                    if next_rotation_time is not None:
+                        metadata.rotation_policy.next_rotation_time = next_rotation_time
+                    elif metadata.rotation_policy.auto_rotate and not metadata.rotation_policy.next_rotation_time:
+                        metadata.rotation_policy.next_rotation_time = (
+                            time.time() + (metadata.rotation_policy.rotation_interval_days * 86400)
+                        )
+
+                self._key_metadata[key_id] = metadata
+                self._invalidate_metadata_cache()
+                self._save_metadata()
+
+            logger.info(f"Updated rotation policy for key {key_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update rotation policy for key {key_id}: {e}")
             return False
-            
-        metadata = self._key_metadata[key_id]
-        
-        # Create new policy or update existing one
-        if metadata.rotation_policy is None:
-            # Create new policy with defaults from config
-            policy_config = self.config['default_rotation_policy'].copy()
-            metadata.rotation_policy = RotationPolicy(
-                max_age_days=max_age_days or policy_config['max_age_days'],
-                max_usage_count=max_usage_count or policy_config['max_usage_count'],
-                auto_rotate=auto_rotate if auto_rotate is not None else policy_config['auto_rotate'],
-                rotation_interval_days=rotation_interval_days or policy_config['rotation_interval_days']
-            )
-        else:
-            # Update existing policy
-            if max_age_days is not None:
-                metadata.rotation_policy.max_age_days = max_age_days
-            if max_usage_count is not None:
-                metadata.rotation_policy.max_usage_count = max_usage_count
-            if auto_rotate is not None:
-                metadata.rotation_policy.auto_rotate = auto_rotate
-            if rotation_interval_days is not None:
-                metadata.rotation_policy.rotation_interval_days = rotation_interval_days
-                
-        # Update next rotation time if needed
-        if next_rotation_time is not None:
-            metadata.rotation_policy.next_rotation_time = next_rotation_time
-        elif metadata.rotation_policy.auto_rotate and not metadata.rotation_policy.next_rotation_time:
-            # Set initial next rotation time
-            metadata.rotation_policy.next_rotation_time = (
-                time.time() + (metadata.rotation_policy.rotation_interval_days * 86400)
-            )
-            
-        self._save_metadata()
-        logger.info(f"Updated rotation policy for key {key_id}")
-        return True
         
     def rotate_key(self, key_id: str) -> Optional[str]:
         """Rotate a key by creating a new version and marking the old one as rotated
@@ -732,59 +790,55 @@ class KeyManager:
         Returns:
             str: ID of the new key, or None if rotation failed
         """
-        if key_id not in self._key_metadata:
-            logger.warning(f"Key {key_id} not found")
-            return None
-            
-        old_metadata = self._key_metadata[key_id]
-        
-        # Create a new key with the same parameters
         try:
-            new_key_id = f"{key_id}_v{int(time.time())}"
-            
-            # Generate new key with same parameters
-            self._hsm.generate_key(
-                key_id=new_key_id,
-                key_type=old_metadata.key_type,
-                **old_metadata.custom_metadata or {}
-            )
-            
-            # Create metadata for new key
-            new_metadata = KeyMetadata(
-                key_id=new_key_id,
-                key_type=old_metadata.key_type,
-                description=f"Rotated from {key_id}",
-                created_at=time.time(),
-                custom_metadata=old_metadata.custom_metadata,
-                rotation_policy=old_metadata.rotation_policy
-            )
-            
-            # Update old key metadata
-            old_metadata.rotated_at = time.time()
-            old_metadata.rotated_to = new_key_id
-            old_metadata.enabled = False  # Disable old key
-            
-            # Update new key metadata
-            new_metadata.rotated_from = key_id
-            
-            # Save both metadata entries
-            self._key_metadata[new_key_id] = new_metadata
-            self._save_metadata()
-            
-            # Log the rotation
-            self._audit_logger.log_key_operation(
-                'rotate',
-                key_id,
-                {
-                    'new_key_id': new_key_id,
-                    'key_type': old_metadata.key_type.value,
-                    'rotation_time': old_metadata.rotated_at
-                }
-            )
-            
+            with self._lock:
+                old_metadata = self._key_metadata.get(key_id)
+                if old_metadata is None:
+                    logger.warning(f"Key {key_id} not found")
+                    return None
+
+                new_key_id = f"{key_id}_v{int(time.time())}"
+
+                self._hsm.generate_key(
+                    key_id=new_key_id,
+                    key_type=old_metadata.key_type,
+                    **(old_metadata.custom_metadata or {})
+                )
+
+                new_metadata = KeyMetadata(
+                    key_id=new_key_id,
+                    key_type=old_metadata.key_type,
+                    description=f"Rotated from {key_id}",
+                    created_at=time.time(),
+                    custom_metadata=old_metadata.custom_metadata,
+                    rotation_policy=old_metadata.rotation_policy
+                )
+
+                old_metadata.rotated_at = time.time()
+                old_metadata.rotated_to = new_key_id
+                old_metadata.enabled = False
+
+                new_metadata.rotated_from = key_id
+
+                self._key_metadata[new_key_id] = new_metadata
+                self._key_metadata[key_id] = old_metadata
+                self._invalidate_metadata_cache()
+                self._save_metadata()
+
+            if hasattr(self, '_audit_logger'):
+                self._audit_logger.log_key_operation(
+                    'rotate',
+                    key_id,
+                    {
+                        'new_key_id': new_key_id,
+                        'key_type': old_metadata.key_type.value,
+                        'rotation_time': old_metadata.rotated_at
+                    }
+                )
+
             logger.info(f"Rotated key {key_id} to {new_key_id}")
             return new_key_id
-            
+
         except Exception as e:
             logger.error(f"Failed to rotate key {key_id}: {e}")
             return None
@@ -796,20 +850,14 @@ class KeyManager:
             Dict[str, str]: Mapping of old key IDs to new key IDs for rotated keys
         """
         rotated = {}
-        
-        # Make a copy of keys to avoid modifying during iteration
-        key_ids = list(self._key_metadata.keys())
-        
-        for key_id in key_ids:
-            if key_id not in self._key_metadata:  # Skip if key was deleted during iteration
-                continue
-                
-            metadata = self._key_metadata[key_id]
-            
+
+        metadata_snapshot = self._get_thread_metadata_snapshot()
+
+        for key_id, metadata in metadata_snapshot.items():
             # Skip if key is already rotated or has no rotation policy
             if not metadata.enabled or not metadata.rotation_policy:
                 continue
-                
+
             # Check if key needs rotation
             if metadata.rotation_policy.needs_rotation(metadata):
                 logger.info(f"Rotating key {key_id} based on rotation policy")
@@ -830,11 +878,12 @@ class KeyManager:
         """
         history = []
         current_id = key_id
-        
+
         # Follow the chain of rotated keys
-        while current_id in self._key_metadata:
-            metadata = self._key_metadata[current_id]
-            
+        snapshot = self._get_thread_metadata_snapshot()
+        while current_id in snapshot:
+            metadata = snapshot[current_id]
+
             if metadata.rotated_at:
                 history.append({
                     'key_id': current_id,
@@ -890,16 +939,18 @@ class KeyManager:
                         data = json.load(f)
                         if not isinstance(data, dict):
                             continue
-                            
+
                         # If we got here, the backup is valid
                         logger.info(f"Recovering from backup: {backup}")
-                        self._key_metadata = {
-                            k: KeyMetadata.from_dict(v) for k, v in data.items()
-                        }
-                        self._save_metadata()
+                        with self._lock:
+                            self._key_metadata = {
+                                k: KeyMetadata.from_dict(v) for k, v in data.items()
+                            }
+                            self._invalidate_metadata_cache()
+                            self._save_metadata()
                         logger.info("Recovery successful")
                         return True
-                        
+
                 except Exception as e:
                     logger.warning(f"Failed to recover from {backup}: {e}")
                     continue
@@ -913,13 +964,53 @@ class KeyManager:
     
     def _update_key_metadata(self, key_id: str, **updates) -> None:
         """Update key metadata"""
-        if key_id in self._key_metadata:
-            metadata = self._key_metadata[key_id]
+        with self._lock:
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                return
+
             for key, value in updates.items():
-                if hasattr(metadata, key):
+                if key == 'usage_count' and isinstance(value, int):
+                    metadata.usage_count = value
+                elif hasattr(metadata, key):
                     setattr(metadata, key, value)
+
             self._key_metadata[key_id] = metadata
+            self._invalidate_metadata_cache()
             self._save_metadata()
+
+    def _record_key_usage(self, key_id: str) -> None:
+        """Increment usage statistics for a key in a thread-safe manner."""
+        with self._lock:
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                return
+
+            metadata.last_used = time.time()
+            metadata.usage_count += 1
+            self._key_metadata[key_id] = metadata
+            self._invalidate_metadata_cache()
+            self._save_metadata()
+
+    def update_key_metadata(self, key_id: str, **updates) -> None:
+        """Public method to update key metadata and persist custom fields."""
+        if key_id not in self._key_metadata:
+            raise KeyError(f"Key {key_id} not found")
+
+        metadata = self._key_metadata[key_id]
+        custom_updates = updates.pop('custom_metadata', None)
+
+        for key, value in updates.items():
+            if hasattr(metadata, key):
+                setattr(metadata, key, value)
+
+        if custom_updates:
+            merged_custom = dict(metadata.custom_metadata or {})
+            merged_custom.update(custom_updates)
+            metadata.custom_metadata = merged_custom
+
+        self._key_metadata[key_id] = metadata
+        self._save_metadata()
     
     def generate_key(self, key_type: KeyType, key_size: int = 32, 
                     key_id: Optional[str] = None, **metadata) -> Tuple[str, KeyMetadata]:
@@ -943,59 +1034,64 @@ class KeyManager:
             key_id = f"{key_type.value}_{uuid4().hex[:8]}"
         
         try:
-            # Generate the key in the HSM
             hsm_key_type = self._get_hsm_key_type(key_type, key_size)
-            key = self._hsm.generate_key(
+            self._hsm.generate_key(
                 key_id=key_id,
                 key_type=hsm_key_type,
-                extractable=False  # Never extract keys from HSM
+                extractable=False
             )
-            
-            # Create and store metadata
-            metadata = KeyMetadata(
+
+            metadata_overrides = metadata
+            metadata_obj = KeyMetadata(
                 key_id=key_id,
                 key_type=key_type,
                 created_at=time.time(),
                 last_used=time.time(),
                 usage_count=0,
                 enabled=True,
-                tags=metadata.get('tags', []),
-                custom_metadata=metadata.get('custom_metadata', {})
+                tags=metadata_overrides.get('tags', []),
+                custom_metadata=metadata_overrides.get('custom_metadata', {})
             )
-            
-            self._key_metadata[key_id] = metadata
-            self._save_metadata()
-            
+
+            with self._lock:
+                self._key_metadata[key_id] = metadata_obj
+                self._invalidate_metadata_cache()
+                self._save_metadata()
+
             logger.info(f"Generated new {key_type.value} key: {key_id}")
-            return key_id, metadata
-            
+            return key_id, metadata_obj
+
         except Exception as e:
             logger.error(f"Failed to generate key: {e}")
             raise HSMOperationError(f"Key generation failed: {e}")
-    
+
     def get_key_metadata(self, key_id: str) -> Optional[KeyMetadata]:
         """Get metadata for a key"""
-        return self._key_metadata.get(key_id)
-    
+        snapshot = self._get_thread_metadata_snapshot()
+        return snapshot.get(key_id)
+
     def list_keys(self, key_type: Optional[KeyType] = None) -> List[KeyMetadata]:
         """List all keys, optionally filtered by type"""
+        snapshot = self._get_thread_metadata_snapshot()
         if key_type is None:
-            return list(self._key_metadata.values())
-        return [m for m in self._key_metadata.values() if m.key_type == key_type]
-    
+            return list(snapshot.values())
+        return [m for m in snapshot.values() if m.key_type == key_type]
+
     def delete_key(self, key_id: str) -> bool:
         """Delete a key and its metadata"""
         try:
             if self._hsm_available:
                 self._hsm.delete_key(key_id)
-            
-            if key_id in self._key_metadata:
-                del self._key_metadata[key_id]
-                self._save_metadata()
-                
+
+            with self._lock:
+                if key_id in self._key_metadata:
+                    del self._key_metadata[key_id]
+                    self._invalidate_metadata_cache()
+                    self._save_metadata()
+
             logger.info(f"Deleted key: {key_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to delete key {key_id}: {e}")
             return False
@@ -1018,14 +1114,22 @@ class KeyManager:
                 raise HSMUnavailableError("HSM not available")
                 
             # Update key usage stats
-            self._update_key_metadata(
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                raise KeyError(f"Key {key_id} not found")
+
+            usage_count = metadata.usage_count + 1
+            self.update_key_metadata(
                 key_id,
                 last_used=time.time(),
-                usage_count=self._key_metadata.get(key_id, 0) + 1
+                usage_count=usage_count
             )
             
+
+            self._record_key_usage(key_id)
+
             return self._hsm.encrypt(key_id, plaintext, aad)
-            
+
         except Exception as e:
             logger.error(f"Encryption with key {key_id} failed: {e}")
             raise HSMOperationError(f"Encryption failed: {e}")
@@ -1049,14 +1153,22 @@ class KeyManager:
                 raise HSMUnavailableError("HSM not available")
                 
             # Update key usage stats
-            self._update_key_metadata(
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                raise KeyError(f"Key {key_id} not found")
+
+            usage_count = metadata.usage_count + 1
+            self.update_key_metadata(
                 key_id,
                 last_used=time.time(),
-                usage_count=self._key_metadata.get(key_id, 0) + 1
+                usage_count=usage_count
             )
             
+
+            self._record_key_usage(key_id)
+
             return self._hsm.decrypt(key_id, ciphertext, iv, aad)
-            
+
         except Exception as e:
             logger.error(f"Decryption with key {key_id} failed: {e}")
             raise HSMOperationError(f"Decryption failed: {e}")
@@ -1099,8 +1211,12 @@ class KeyManager:
         if not backup_passphrase or len(backup_passphrase) < 16:
             raise ValueError("Backup passphrase must be at least 16 characters long")
             
-        # Verify all keys exist
-        missing_keys = [key_id for key_id in key_ids if key_id not in self._key_metadata]
+        with self._lock:
+            metadata_snapshot = {
+                key_id: self._key_metadata.get(key_id)
+                for key_id in key_ids
+            }
+        missing_keys = [key_id for key_id, meta in metadata_snapshot.items() if meta is None]
         if missing_keys:
             raise ValueError(f"Keys not found: {', '.join(missing_keys)}")
             
@@ -1123,10 +1239,11 @@ class KeyManager:
             
             # Export keys and metadata
             for key_id in key_ids:
-                # Get key metadata
-                metadata = self._key_metadata[key_id]
+                metadata = metadata_snapshot[key_id]
+                if metadata is None:
+                    continue
                 backup_data['key_metadata'][key_id] = metadata.to_dict()
-                
+
                 # Export key from HSM (if supported)
                 try:
                     key_data = self._hsm.export_key(key_id, wrap_key=backup_key)
@@ -1261,13 +1378,14 @@ class KeyManager:
             # Restore keys
             restored = []
             failed = []
-            
+            metadata_to_update: Dict[str, KeyMetadata] = {}
+
             for key_id in key_ids:
                 if key_id not in backup_data['keys'] or not backup_data['keys'][key_id]:
                     logger.warning(f"Key {key_id} not found in backup or could not be exported")
                     failed.append(key_id)
                     continue
-                    
+
                 try:
                     # Import key into HSM
                     key_data = bytes.fromhex(backup_data['keys'][key_id])
@@ -1277,19 +1395,22 @@ class KeyManager:
                         key_type=backup_data['key_metadata'][key_id]['key_type'],
                         wrap_key=backup_key
                     )
-                    
+
                     # Update metadata
                     metadata = KeyMetadata.from_dict(backup_data['key_metadata'][key_id])
-                    self._key_metadata[key_id] = metadata
+                    metadata_to_update[key_id] = metadata
                     restored.append(key_id)
-                    
+
                 except Exception as e:
                     logger.error(f"Failed to restore key {key_id}: {e}")
                     failed.append(key_id)
-            
-            # Save updated metadata
-            self._save_metadata()
-            
+
+            if metadata_to_update:
+                with self._lock:
+                    self._key_metadata.update(metadata_to_update)
+                    self._invalidate_metadata_cache()
+                    self._save_metadata()
+
             return {
                 'status': 'partial' if failed else 'success',
                 'restored': restored,
@@ -1389,9 +1510,12 @@ class KeyManager:
         
         # Create one final backup before closing
         try:
-            if self.config['backup_enabled'] and self._key_metadata:
+            with self._lock:
+                has_metadata = bool(self._key_metadata)
+                key_ids = list(self._key_metadata.keys())
+            if self.config['backup_enabled'] and has_metadata:
                 self.create_backup(
-                    key_ids=list(self._key_metadata.keys()),
+                    key_ids=key_ids,
                     backup_passphrase=self._get_backup_passphrase(),
                     output_path=os.path.join(
                         self.config['backup_dir'],
@@ -1402,10 +1526,12 @@ class KeyManager:
             logger.error(f"Failed to create final backup: {e}")
         
         # Clear sensitive data
-        self._hsm = None
-        self._hsm_available = False
-        self._key_metadata.clear()
-        self._save_metadata()
+        with self._lock:
+            self._hsm = None
+            self._hsm_available = False
+            self._key_metadata.clear()
+            self._invalidate_metadata_cache()
+            self._save_metadata()
 
 # Global key manager instance
 _key_manager = None
