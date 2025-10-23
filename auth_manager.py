@@ -18,6 +18,7 @@ import logging
 from typing import Optional, Dict, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+from threading import Lock
 
 from auth_database import AuthDatabase, Session, User
 from user_manager import UserManager
@@ -89,6 +90,7 @@ class AuthSession:
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
+        self._lock: Lock = Lock()
 
     def get_master_key(self) -> bytes:
         """
@@ -100,11 +102,20 @@ class AuthSession:
         Raises:
             SessionExpiredError: If session has expired
         """
-        if self.is_expired():
+        now = datetime.now()
+        if now >= self.expires_at:
             raise SessionExpiredError("Session has expired")
 
-        self.last_activity = datetime.now()
-        return bytes(self._master_key)
+        with self._lock:
+            now = datetime.now()
+            if now >= self.expires_at:
+                raise SessionExpiredError("Session has expired")
+
+            if self._master_key is None:
+                raise SessionExpiredError("Session is closed")
+
+            self.last_activity = now
+            return bytes(self._master_key)
 
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -112,9 +123,10 @@ class AuthSession:
 
     def close(self):
         """Close session and wipe master key from memory"""
-        if self._master_key:
-            secure_wipe(self._master_key)
-            self._master_key = None
+        with self._lock:
+            if self._master_key:
+                secure_wipe(self._master_key)
+                self._master_key = None
 
     def __del__(self):
         """Ensure master key is wiped when session is garbage collected"""
