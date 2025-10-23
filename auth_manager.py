@@ -12,9 +12,13 @@ components:
 This module provides the high-level authentication API used by the GUI and CLI.
 """
 
+import ctypes
 import os
 import uuid
 import logging
+import warnings
+from contextlib import contextmanager
+from typing import Optional, Dict, Any, Union, Iterator
 from typing import Optional, Dict, Any, Tuple, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -23,7 +27,7 @@ from auth_database import AuthDatabase, Session, User
 from user_manager import UserManager
 from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
-from secure_memory import secure_wipe
+from secure_memory import secure_alloc, secure_free, secure_wipe
 from instance_guard import TamperDetectedError
 from audit_logger import AuditEventType, AuditSeverity, get_audit_logger
 
@@ -58,6 +62,57 @@ class SystemLockdownError(AuthenticationError):
     pass
 
 
+class SessionSecret:
+    """Secure container that stores session secrets in locked memory."""
+
+    def __init__(self, secret: Union[bytes, bytearray, memoryview]):
+        buffer = bytearray(secret)
+        self._length = len(buffer)
+        self._memory = secure_alloc(self._length) if self._length else None
+
+        if self._memory is not None and self._length:
+            dest = (ctypes.c_ubyte * self._length).from_address(self._memory.address)
+            dest[: self._length] = buffer
+
+        if buffer:
+            secure_wipe(buffer)
+
+    def is_available(self) -> bool:
+        return self._memory is not None and self._length > 0
+
+    @contextmanager
+    def access(self) -> Iterator[bytearray]:
+        """Provide temporary access to the secret as a mutable buffer."""
+
+        if not self.is_available():
+            raise SessionExpiredError("Session secret is no longer available")
+
+        temp = bytearray(self._length)
+        if self._length:
+            dest = (ctypes.c_ubyte * self._length).from_buffer(temp)
+            ctypes.memmove(ctypes.addressof(dest), self._memory.address, self._length)
+
+        try:
+            yield temp
+        finally:
+            if temp:
+                secure_wipe(temp)
+
+    def zeroize(self) -> None:
+        """Zeroize and release the underlying secure memory."""
+
+        if self._memory is not None:
+            self._memory.zero()
+            secure_free(self._memory)
+            self._memory = None
+
+        self._length = 0
+
+    def __del__(self):
+        try:
+            self.zeroize()
+        except Exception:
+            pass
 class SessionHijackingError(AuthenticationError):
     """Raised when session client metadata does not match expectations."""
 
@@ -92,28 +147,40 @@ class AuthSession:
         """
         self.session_id = session_id
         self.user_id = user_id
-        self._master_key = bytearray(master_key)  # SENSITIVE: Stored in memory
+        self._secret = SessionSecret(master_key)
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
         self.ip_address = ip_address
         self.user_agent = user_agent
 
-    def get_master_key(self) -> bytes:
-        """
-        Get master vault key for encryption/decryption operations.
+    @contextmanager
+    def master_key(self) -> Iterator[bytearray]:
+        """Context manager providing temporary access to the master key."""
 
-        Returns:
-            Master key (32 bytes)
-
-        Raises:
-            SessionExpiredError: If session has expired
-        """
         if self.is_expired():
             raise SessionExpiredError("Session has expired")
 
+        if self._secret is None or not self._secret.is_available():
+            raise SessionExpiredError("Session secret is no longer available")
+
         self.last_activity = datetime.now()
-        return bytes(self._master_key)
+
+        with self._secret.access() as buffer:
+            yield buffer
+
+    def get_master_key(self) -> bytes:
+        """Return the master key bytes (deprecated: use master_key())."""
+
+        warnings.warn(
+            "AuthSession.get_master_key() is deprecated; use the master_key() context"
+            " manager instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        with self.master_key() as buffer:
+            return bytes(buffer)
 
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -121,13 +188,18 @@ class AuthSession:
 
     def close(self):
         """Close session and wipe master key from memory"""
-        if self._master_key:
-            secure_wipe(self._master_key)
-            self._master_key = None
+        if self._secret is not None:
+            self._secret.zeroize()
+            self._secret = None
 
     def __del__(self):
         """Ensure master key is wiped when session is garbage collected"""
         self.close()
+
+    def has_master_key(self) -> bool:
+        """Return True if the session still retains a master key."""
+
+        return self._secret is not None and self._secret.is_available()
 
 
 class AuthManager:
