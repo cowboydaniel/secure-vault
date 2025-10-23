@@ -25,6 +25,7 @@ from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
 from instance_guard import TamperDetectedError
+from auth_queue import AuthQueue
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ class AuthConfig:
     session_timeout_minutes: int = 30      # Session expires after 30 minutes
     session_idle_timeout_minutes: int = 15  # Auto-logout after 15 minutes idle
     max_concurrent_sessions: int = 1        # Only one session per user
+    argon_concurrency_limit: int = 2        # Max concurrent Argon2 operations
+    argon_wait_warning_seconds: float = 1.0
+    argon_metrics_log_interval: int = 50
 
 
 class AuthenticationError(Exception):
@@ -137,7 +141,8 @@ class AuthManager:
     def __init__(
         self,
         db: Optional[AuthDatabase] = None,
-        config: Optional[AuthConfig] = None
+        config: Optional[AuthConfig] = None,
+        auth_queue: Optional[AuthQueue] = None
     ):
         """
         Initialize authentication manager.
@@ -159,6 +164,11 @@ class AuthManager:
         self.user_manager = UserManager(self.db)
         self.pin_manager = PINManager()
         self.rate_limiter = RateLimiter(self.db)
+        self.auth_queue = auth_queue or AuthQueue(
+            max_concurrent=self.config.argon_concurrency_limit,
+            wait_warning_threshold=self.config.argon_wait_warning_seconds,
+            metrics_log_interval=self.config.argon_metrics_log_interval,
+        )
 
         # Active sessions (in-memory)
         self._sessions: Dict[str, AuthSession] = {}
@@ -254,12 +264,13 @@ class AuthManager:
 
         try:
             # Derive key from PIN
-            pin_derived_key = self.pin_manager.derive_key_from_pin(
-                pin,
-                credentials.pin_salt,
-                algorithm=credentials.kdf_algorithm,
-                metadata=credentials.kdf_metadata,
-            )
+            with self.auth_queue.acquire("pin_derive"):
+                pin_derived_key = self.pin_manager.derive_key_from_pin(
+                    pin,
+                    credentials.pin_salt,
+                    algorithm=credentials.kdf_algorithm,
+                    metadata=credentials.kdf_metadata,
+                )
 
             # Attempt to decrypt master key
             associated_data = user.email_hash + b"master_key"
@@ -413,7 +424,10 @@ class AuthManager:
             raise
 
         # Verify password
-        if not self.user_manager.verify_password(user.user_id, password):
+        with self.auth_queue.acquire("password_verify"):
+            password_valid = self.user_manager.verify_password(user.user_id, password)
+
+        if not password_valid:
             self.rate_limiter.record_failed_attempt(user.user_id)
 
             self.db.record_auth_attempt(
