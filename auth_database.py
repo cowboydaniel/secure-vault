@@ -300,38 +300,6 @@ class AuthDatabase:
 
         return value.strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    @staticmethod
-    def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
-        """Coerce SQLite timestamp values into ``datetime`` objects."""
-
-        if value is None:
-            return None
-
-        if isinstance(value, datetime):
-            return value
-
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value)
-
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value)
-            except ValueError:
-                try:
-                    return datetime.fromtimestamp(float(value))
-                except (TypeError, ValueError):
-                    logger.warning("Unable to parse datetime value: %s", value)
-                    return None
-
-        logger.warning("Unexpected datetime value type: %s", type(value))
-        return None
-
-    @staticmethod
-    def _format_datetime(value: datetime) -> str:
-        """Format datetimes for SQLite storage."""
-
-        return value.strftime("%Y-%m-%d %H:%M:%S.%f")
-
     def _initialize_database(self):
         """Create database schema if it doesn't exist"""
         with self._get_connection() as conn:
@@ -441,9 +409,15 @@ class AuthDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_user_id ON auth_attempts(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_timestamp ON auth_attempts(timestamp)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_hash ON auth_attempts(email_hash)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_normalized_hash ON auth_attempts(normalized_email_hash)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_attempt_key ON auth_attempts(attempt_key)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_hash ON auth_attempts(email_hash)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auth_attempts_normalized_hash ON auth_attempts(normalized_email_hash)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auth_attempts_attempt_key ON auth_attempts(attempt_key)"
+            )
 
             self._bind_instance_secret(cursor)
 

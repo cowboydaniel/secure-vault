@@ -231,17 +231,18 @@ class SecureMemory:
         if not self._allocated:
             return
 
-        if self._size <= 0 or self._address is None:
-            # Nothing to zero for empty allocations
+        address = self._address
+        if self._size <= 0 or not address:
+            # Nothing to zero for empty allocations or if no address is present
             return
 
         # Use a volatile pointer to prevent optimization
-        buf = (ctypes.c_byte * self._size).from_address(self._address)
+        buf = (ctypes.c_byte * self._size).from_address(int(address))
         for i in range(self._size):
             buf[i] = 0
 
         # Ensure writes are not optimized away
-        ctypes.memset(self._address, 0, self._size)
+        ctypes.memset(int(address), 0, self._size)
     
     def _release(self) -> None:
         """Release the allocated memory."""
@@ -273,6 +274,15 @@ class SecureMemory:
     def __del__(self):
         """Ensure memory is securely freed when object is destroyed."""
         self._release()
+
+    def __enter__(self) -> "SecureMemory":
+        """Support ``with secure_alloc(...)`` usage."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Automatically release the allocation when leaving a context."""
+        self._release()
+        return False
     
     @property
     def address(self) -> int:
