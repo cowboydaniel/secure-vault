@@ -35,6 +35,7 @@ from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
 from crypto_utils import validate_entropy_quality, secure_wipe
 from cli_auth import CLIAuthenticator, AuthenticationFlowError
+from file_utils import validate_storage_path
 from rng_manager import get_rng_manager
 from secure_memory import secure_alloc, secure_free
 
@@ -169,8 +170,12 @@ def decrypt_file_interactive():
     
     # Ask for custom storage directory
     custom_dir = input("\nEnter path to encrypted files (press Enter for default): ").strip()
-    storage_dir = os.path.expanduser(custom_dir) if custom_dir else None
-    
+    try:
+        storage_dir = validate_storage_path(custom_dir or None)
+    except ValueError as exc:
+        print(f"\n❌ Invalid storage directory: {exc}")
+        return False
+
     # List available files
     files = list_encrypted_files(storage_dir)
     if not files:
