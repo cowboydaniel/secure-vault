@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QFileDialog, QProgressBar, QTextEdit, QGroupBox, QCheckBox, QSpinBox,
-    QComboBox, QFormLayout
+    QComboBox, QFormLayout, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -24,6 +24,7 @@ from file_utils import (
     InputFileValidationError,
     validate_input_file,
 )
+from file_utils import validate_storage_path
 
 
 class EncryptionWorker(QThread):
@@ -179,7 +180,11 @@ class EncryptView(QWidget):
         output_layout = QHBoxLayout()
         self.output_dir = QLineEdit()
         self.output_dir.setPlaceholderText("Select output directory...")
-        self.output_dir.setText(str(Path.home() / "SecureVault_Encrypted"))
+        try:
+            default_output = validate_storage_path(None)
+        except ValueError:
+            default_output = Path.home()
+        self.output_dir.setText(str(default_output))
         btn_output = QPushButton("Browse...")
         btn_output.clicked.connect(self.browse_output_dir)
         output_layout.addWidget(self.output_dir)
@@ -231,10 +236,15 @@ class EncryptView(QWidget):
 
     def browse_files(self):
         """Open file browser to select files."""
+        try:
+            start_dir = str(validate_storage_path(None))
+        except ValueError:
+            start_dir = str(Path.home())
+
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Select Files to Encrypt",
-            str(Path.home()),
+            start_dir,
             "All Files (*.*)"
         )
 
@@ -243,14 +253,24 @@ class EncryptView(QWidget):
 
     def browse_output_dir(self):
         """Browse for output directory."""
+        try:
+            start_dir = str(validate_storage_path(None))
+        except ValueError:
+            start_dir = str(Path.home())
+
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Output Directory",
-            str(Path.home())
+            start_dir
         )
 
         if directory:
-            self.output_dir.setText(directory)
+            try:
+                validated = validate_storage_path(directory)
+            except ValueError as exc:
+                QMessageBox.critical(self, "Invalid directory", str(exc))
+                return
+            self.output_dir.setText(str(validated))
 
     def on_files_dropped(self, files):
         """Handle dropped files."""
@@ -283,8 +303,12 @@ class EncryptView(QWidget):
     def start_encryption(self):
         """Start the encryption process."""
         # Validate output directory
-        output_dir = Path(self.output_dir.text())
-        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            output_dir = validate_storage_path(self.output_dir.text().strip() or None, create=True)
+        except ValueError as exc:
+            QMessageBox.critical(self, "Invalid output directory", str(exc))
+            self.update_status("Invalid output directory")
+            return
 
         # Prepare options
         options = {
