@@ -86,23 +86,26 @@ class SecureNotesVault:
             return self._cached_key
 
         session = self.session_provider() if self.session_provider else None
+        derived_key: Optional[bytes]
         if session is not None:
             try:
-                master_key = session.get_master_key()  # type: ignore[attr-defined]
+                with session.master_key() as master_key_buffer:  # type: ignore[attr-defined]
+                    salt = self._load_or_create_salt()
+                    hkdf = HKDF(
+                        algorithm=hashes.SHA256(),
+                        length=32,
+                        salt=salt,
+                        info=b"SecureNotesVault",
+                    )
+                    key = hkdf.derive(master_key_buffer)
+                derived_key = key
             except Exception:
-                master_key = None
+                derived_key = None
         else:
-            master_key = None
+            derived_key = None
 
-        if master_key:
-            salt = self._load_or_create_salt()
-            hkdf = HKDF(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                info=b"SecureNotesVault",
-            )
-            key = hkdf.derive(master_key)
+        if derived_key is not None:
+            key = derived_key
         else:
             key = self._load_or_create_fallback_key()
 
