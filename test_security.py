@@ -30,6 +30,7 @@ from access_control import AccessControl, PermissionDeniedError
 from config import StorageConfig
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from file_utils import SymlinkOpenError, safe_file_open
 from pin_manager import PINManager
 from file_utils import validate_storage_path
 
@@ -201,6 +202,34 @@ class TestCustomCipherCornerCases(unittest.TestCase):
                 self.assertNotEqual(blocks[i], blocks[j])
 
 
+class TestSafeFileOpen(unittest.TestCase):
+    """Regression tests for secure file handling helpers."""
+
+    def test_symlink_rejected_for_read(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("classified data")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "r"):
+                    pass
+
+    def test_symlink_rejected_for_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("original")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "w"):
+                    pass
 class TestAccessControlIntegration(unittest.TestCase):
     """Integration tests for the access control service."""
 
