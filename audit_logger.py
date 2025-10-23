@@ -16,9 +16,14 @@ import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from crypto_utils import derive_key_hkdf_sha3_512
+from instance_guard import InstanceGuard, InstanceStateError, TamperDetectedError
 
 
 _SENSITIVE_DETAIL_KEYWORDS = {
@@ -293,12 +298,25 @@ class AuditLogger:
     - Configurable log retention
     """
 
+    KEY_FILE_NAME = '.audit_log.key'
+    CHAIN_FILE_NAME = '.audit_log.chain'
+    KEY_FILE_VERSION = 2
+    CHAIN_FILE_VERSION = 1
+    KEY_WRAP_SALT = hashlib.sha256(b"AuditLogger::key_material").digest()
+    CHAIN_WRAP_SALT = hashlib.sha256(b"AuditLogger::chain_state").digest()
+    KEY_WRAP_INFO = b"audit-log-key-material"
+    CHAIN_WRAP_INFO = b"audit-log-chain"
+
     def __init__(self,
                  log_dir: str = "audit_logs",
                  log_file: str = "security_audit.log",
                  max_log_size: int = 10 * 1024 * 1024,  # 10 MB
                  max_backups: int = 10,
-                 enable_tamper_detection: bool = True):
+                 enable_tamper_detection: bool = True,
+                 *,
+                 instance_guard: Optional[InstanceGuard] = None,
+                 auth_db_path: Optional[str] = None,
+                 key_wrap_secret: Optional[bytes] = None):
         """
         Initialize audit logger
 
@@ -308,12 +326,19 @@ class AuditLogger:
             max_log_size: Maximum size before rotation
             max_backups: Number of backup logs to keep
             enable_tamper_detection: Enable tamper detection features
+            instance_guard: Optional pre-initialized InstanceGuard for key wrapping
+            auth_db_path: Path to authentication database for resolving InstanceGuard
+            key_wrap_secret: Operator-supplied secret for wrapping keys when guard unavailable
         """
         self.log_dir = Path(log_dir)
         self.log_file = self.log_dir / log_file
         self.max_log_size = max_log_size
         self.max_backups = max_backups
         self.enable_tamper_detection = enable_tamper_detection
+        self._provided_guard = instance_guard
+        self._auth_db_path = auth_db_path
+        self._external_wrap_secret = bytes(key_wrap_secret) if key_wrap_secret else None
+        self._guard_secret: Optional[bytes] = None
 
         # Create log directory if it doesn't exist and restrict permissions
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -322,6 +347,8 @@ class AuditLogger:
                 os.chmod(self.log_dir, 0o700)
         except PermissionError:
             pass
+
+        self._guard_secret = self._resolve_guard_secret()
 
         # Load encryption material
         self._log_key, self._log_iv = self._load_encryption_material()
@@ -332,7 +359,8 @@ class AuditLogger:
         self._setup_logging()
 
         # Chain hash for tamper detection
-        self._last_hash = b'\x00' * 32
+        self._last_hash = self._load_chain_state()
+        self._persist_chain_state(self._last_hash)
 
         # Event counters
         self._event_counters = {severity: 0 for severity in AuditSeverity}
@@ -377,6 +405,187 @@ class AuditLogger:
         )
         self.storage_logger.addHandler(encrypted_handler)
 
+    def _resolve_guard_secret(self) -> bytes:
+        """Obtain the secret used to wrap audit logger materials."""
+
+        if self._guard_secret is not None:
+            return self._guard_secret
+
+        if self._provided_guard is not None:
+            try:
+                secret = self._provided_guard.get_secret()
+                self._guard_secret = bytes(secret)
+                return self._guard_secret
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.getLogger(__name__).error(
+                    "Failed to use provided instance guard for audit logger: %s", exc
+                )
+
+        db_path = self._auth_db_path
+        if db_path is None:
+            default_dir = os.path.expanduser("~/.secure_vault")
+            os.makedirs(default_dir, mode=0o700, exist_ok=True)
+            db_path = os.path.join(default_dir, "users.db")
+
+        try:
+            guard = InstanceGuard(db_path)
+            secret = guard.get_secret()
+            self._provided_guard = guard
+            self._guard_secret = bytes(secret)
+            return self._guard_secret
+        except (InstanceStateError, TamperDetectedError) as exc:
+            logging.getLogger(__name__).error(
+                "Instance guard unavailable for audit logger: %s", exc
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logging.getLogger(__name__).warning(
+                "Unable to initialize instance guard for audit logger: %s", exc
+            )
+
+        if self._external_wrap_secret is not None:
+            self._guard_secret = bytes(self._external_wrap_secret)
+            return self._guard_secret
+
+        raise RuntimeError(
+            "Audit logger requires an instance guard or provided key wrap secret"
+        )
+
+    def _derive_wrap_key(self, salt: bytes, info: bytes) -> bytes:
+        secret = self._guard_secret or self._resolve_guard_secret()
+        return derive_key_hkdf_sha3_512(secret, length=32, salt=salt, info=info)
+
+    def _store_wrapped_payload(
+        self,
+        data: bytes,
+        path: Path,
+        *,
+        salt: bytes,
+        info: bytes,
+        version: int,
+    ) -> None:
+        key = self._derive_wrap_key(salt, info)
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(key)
+        ciphertext = aesgcm.encrypt(nonce, data, info)
+        payload = {
+            'version': version,
+            'nonce': base64.b64encode(nonce).decode('ascii'),
+            'ciphertext': base64.b64encode(ciphertext).decode('ascii'),
+        }
+        tmp_path = path.with_suffix('.tmp')
+        tmp_path.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp_path, path)
+        try:
+            if os.name == 'posix':
+                os.chmod(path, 0o600)
+        except PermissionError:  # pragma: no cover - best effort
+            pass
+
+    def _load_wrapped_payload(
+        self,
+        path: Path,
+        *,
+        salt: bytes,
+        info: bytes,
+        version: int,
+        expected_length: Optional[int] = None,
+    ) -> Tuple[bytes, bool]:
+        raw_data = path.read_bytes()
+
+        try:
+            payload = json.loads(raw_data.decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = None
+
+        if isinstance(payload, dict) and payload.get('version') == version:
+            try:
+                nonce = base64.b64decode(payload['nonce'])
+                ciphertext = base64.b64decode(payload['ciphertext'])
+                key = self._derive_wrap_key(salt, info)
+                aesgcm = AESGCM(key)
+                data = aesgcm.decrypt(nonce, ciphertext, info)
+                if expected_length is not None and len(data) != expected_length:
+                    raise ValueError("Wrapped payload length mismatch")
+                return data, True
+            except (KeyError, ValueError, binascii.Error) as exc:
+                logging.getLogger(__name__).error(
+                    "Invalid wrapped payload in %s: %s", path, exc
+                )
+                raise
+
+        return raw_data, False
+
+    def _load_encryption_material(self) -> (bytes, bytes):
+        """Load or create encryption material for log storage."""
+        key_file = self.log_dir / self.KEY_FILE_NAME
+
+        if key_file.exists():
+            data, wrapped = self._load_wrapped_payload(
+                key_file,
+                salt=self.KEY_WRAP_SALT,
+                info=self.KEY_WRAP_INFO,
+                version=self.KEY_FILE_VERSION,
+                expected_length=128,
+            )
+            if len(data) != 128:
+                raise ValueError("Invalid audit log key material length")
+            if not wrapped:
+                self._store_wrapped_payload(
+                    data,
+                    key_file,
+                    salt=self.KEY_WRAP_SALT,
+                    info=self.KEY_WRAP_INFO,
+                    version=self.KEY_FILE_VERSION,
+                )
+            return data[:64], data[64:]
+
+        key = os.urandom(64)
+        iv = os.urandom(64)
+        self._store_wrapped_payload(
+            key + iv,
+            key_file,
+            salt=self.KEY_WRAP_SALT,
+            info=self.KEY_WRAP_INFO,
+            version=self.KEY_FILE_VERSION,
+        )
+        return key, iv
+
+    def _load_chain_state(self) -> bytes:
+        chain_file = self.log_dir / self.CHAIN_FILE_NAME
+        if not chain_file.exists():
+            return b'\x00' * 32
+
+        data, wrapped = self._load_wrapped_payload(
+            chain_file,
+            salt=self.CHAIN_WRAP_SALT,
+            info=self.CHAIN_WRAP_INFO,
+            version=self.CHAIN_FILE_VERSION,
+            expected_length=32,
+        )
+        if len(data) != 32:
+            raise ValueError("Invalid audit chain state length")
+        if not wrapped:
+            self._store_wrapped_payload(
+                data,
+                chain_file,
+                salt=self.CHAIN_WRAP_SALT,
+                info=self.CHAIN_WRAP_INFO,
+                version=self.CHAIN_FILE_VERSION,
+            )
+        return data
+
+    def _persist_chain_state(self, state: bytes) -> None:
+        if len(state) != 32:
+            raise ValueError("Audit chain state must be 32 bytes")
+        chain_file = self.log_dir / self.CHAIN_FILE_NAME
+        self._store_wrapped_payload(
+            state,
+            chain_file,
+            salt=self.CHAIN_WRAP_SALT,
+            info=self.CHAIN_WRAP_INFO,
+            version=self.CHAIN_FILE_VERSION,
+        )
+
     def _generate_session_id(self) -> str:
         """Generate unique session ID"""
         return hashlib.sha256(
@@ -388,26 +597,6 @@ class AuditLogger:
         event_data = json.dumps(payload, sort_keys=True).encode()
         hash_input = self._last_hash + event_data
         return hashlib.sha3_512(hash_input).digest()
-
-    def _load_encryption_material(self) -> (bytes, bytes):
-        """Load or create encryption material for log storage."""
-        key_file = self.log_dir / '.audit_log.key'
-        if key_file.exists():
-            data = key_file.read_bytes()
-            if len(data) != 128:
-                raise ValueError("Invalid audit log key file length")
-            key = data[:64]
-            iv = data[64:]
-        else:
-            key = os.urandom(64)
-            iv = os.urandom(64)
-            key_file.write_bytes(key + iv)
-            try:
-                if os.name == 'posix':
-                    os.chmod(key_file, 0o600)
-            except PermissionError:
-                pass
-        return key, iv
 
     def _sanitize_identifier(self, value: Optional[str]) -> Optional[str]:
         """Return a hashed representation of identifiers."""
@@ -498,6 +687,7 @@ class AuditLogger:
             event_hash = self._compute_event_hash(sanitized_event)
             sanitized_event['details']['event_hash'] = event_hash.hex()[:32]
             self._last_hash = event_hash[:32]
+            self._persist_chain_state(self._last_hash)
 
         try:
             json_payload = json.dumps(sanitized_event, separators=(',', ':'))

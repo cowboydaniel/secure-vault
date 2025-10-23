@@ -1,9 +1,11 @@
+import base64
 import json
 import os
 import threading
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from key_manager import KeyManager, KeyType
 
@@ -97,6 +99,51 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
         self.assertIsInstance(stored_data.get("key_data"), dict)
         self.assertNotIn(stored_payload.hex(), json.dumps(stored_data["key_data"]))
         self.assertEqual(self.km._hsm.retrieve_key("stored_key"), stored_payload)
+
+
+class TestFileBasedHSMSecretWrapping(unittest.TestCase):
+    def test_local_master_secret_guard_wrapped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
+            keys_dir = Path(tmpdir) / "keys"
+            metadata_file = Path(tmpdir) / "metadata.json"
+            auth_db_path = Path(tmpdir) / "users.db"
+
+            config = {
+                "metadata_file": str(metadata_file),
+                "keys_dir": str(keys_dir),
+                "backup_enabled": False,
+                "backup_schedule": 0,
+                "rotation_check_interval": 0,
+                "auth_db_path": str(auth_db_path),
+            }
+
+            key_manager = KeyManager(config)
+            try:
+                key_id, _ = key_manager.generate_key(KeyType.SYMMETRIC, key_size=32)
+                derived_secret = key_manager._hsm._load_or_create_local_secret()
+                encoded_secret = base64.b64encode(derived_secret).decode("ascii")
+
+                secret_path = keys_dir / ".file_hsm_master_secret"
+                self.assertTrue(secret_path.exists())
+                file_contents = secret_path.read_text()
+                payload = json.loads(file_contents)
+
+                self.assertEqual(payload.get("version"), 2)
+                self.assertIn("ciphertext", payload)
+                self.assertNotIn(encoded_secret, file_contents)
+
+                original_key = key_manager._hsm.retrieve_key(key_id)
+                self.assertIsNotNone(original_key)
+            finally:
+                key_manager.close()
+
+            reopened = KeyManager(config)
+            try:
+                reloaded_key = reopened._hsm.retrieve_key(key_id)
+                self.assertEqual(reloaded_key, original_key)
+            finally:
+                reopened.close()
 
 
 if __name__ == "__main__":
