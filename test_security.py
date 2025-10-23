@@ -19,6 +19,7 @@ from typing import List, Tuple
 import numpy as np
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from error_handling import wrap_exception, emit_user_message
 
 class TestCustomCipherSecurity(unittest.TestCase):
     """Security tests for the custom 512-bit cipher"""
@@ -186,6 +187,41 @@ class TestCustomCipherCornerCases(unittest.TestCase):
         for i in range(len(blocks)):
             for j in range(i + 1, len(blocks)):
                 self.assertNotEqual(blocks[i], blocks[j])
+
+
+class TestErrorHandlingSanitization(unittest.TestCase):
+    """Ensure centralized error handling redacts sensitive data."""
+
+    def test_wrap_exception_redacts_sensitive_token_and_path(self):
+        """Tokens and filesystem paths are removed from user errors."""
+
+        sensitive_path = "/etc/passwd"
+        sensitive_token = "SECRET_TOKEN=abc123"
+        wrapped = wrap_exception(
+            ValueError("simulated failure"),
+            f"Operation failed using {sensitive_token} at {sensitive_path}",
+        )
+        message = str(wrapped)
+        self.assertNotIn("abc123", message)
+        self.assertNotIn(sensitive_path, message)
+        self.assertIn("<redacted token>", message)
+        self.assertIn("<path>", message)
+
+    def test_emit_user_message_produces_single_line_sanitized_output(self):
+        """Sanitized user messages should never leak raw secrets or paths."""
+
+        sensitive_path = "C:/Users/admin/AppData/Local/Temp/secrets.txt"
+        sensitive_token = "API_TOKEN=topsecret"
+        message = emit_user_message(
+            RuntimeError("downstream error"),
+            f"Encountered {sensitive_token} near {sensitive_path}",
+        )
+        self.assertNotIn("topsecret", message)
+        self.assertNotIn("AppData", message)
+        self.assertNotIn(sensitive_path, message)
+        self.assertNotIn("\n", message)
+        self.assertIn("<redacted token>", message)
+        self.assertIn("<path>", message)
 
 
 if __name__ == "__main__":

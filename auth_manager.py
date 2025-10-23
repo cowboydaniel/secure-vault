@@ -25,6 +25,7 @@ from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
 from instance_guard import TamperDetectedError
+from error_handling import wrap_exception
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,13 @@ class AuthManager:
             try:
                 self.db = AuthDatabase()
             except TamperDetectedError as exc:
-                raise SystemLockdownError(str(exc)) from exc
+                raise wrap_exception(
+                    exc,
+                    "Authentication subsystem locked due to tamper detection.",
+                    error_cls=SystemLockdownError,
+                    logger=logger,
+                    context="AuthManager.__init__",
+                ) from exc
         self.config = config or AuthConfig()
 
         # Initialize sub-managers
@@ -269,7 +276,7 @@ class AuthManager:
                     pin_derived_key,
                     associated_data
                 )
-            except Exception as e:
+            except Exception as exc:
                 # PIN is incorrect - decryption failed
                 self.rate_limiter.record_failed_attempt(user.user_id)
 
@@ -283,7 +290,13 @@ class AuthManager:
                 )
 
                 logger.warning(f"Failed PIN authentication for user {user.user_id}")
-                raise InvalidCredentialsError("Invalid email or PIN") from e
+                raise wrap_exception(
+                    exc,
+                    "Invalid email or PIN",
+                    error_cls=InvalidCredentialsError,
+                    logger=logger,
+                    context="AuthManager.authenticate_with_pin.decrypt_master_key",
+                ) from exc
 
             # Verify master key with verification marker
             verification_ad = user.email_hash + b"verification"

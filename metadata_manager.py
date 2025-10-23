@@ -8,11 +8,15 @@ encryption parameters, and integrity data in a secure SQLite database.
 import sqlite3
 import json
 import time
-import os
-from typing import Dict, Any, Optional, List, Tuple
+import logging
+from typing import Dict, Any, Optional, List
 from pathlib import Path
-from dataclasses import dataclass, asdict
-import hashlib
+from dataclasses import dataclass
+
+from error_handling import emit_user_message
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,7 +61,14 @@ class MetadataManager:
         """
         self.db_path = Path(db_path)
         self.encryption_key = encryption_key
+        self._last_error_message: Optional[str] = None
         self._init_database()
+
+    @property
+    def last_error_message(self) -> Optional[str]:
+        """Return the most recent sanitized error message."""
+
+        return self._last_error_message
 
     def _init_database(self):
         """Initialize database schema"""
@@ -131,6 +142,8 @@ class MetadataManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        self._last_error_message = None
+
         try:
             current_time = time.time()
 
@@ -167,8 +180,13 @@ class MetadataManager:
             conn.commit()
             return True
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error as exc:
+            self._last_error_message = emit_user_message(
+                exc,
+                "Unable to add file metadata.",
+                logger=logger,
+                context="MetadataManager.add_file_metadata",
+            )
             conn.rollback()
             return False
 
@@ -239,6 +257,8 @@ class MetadataManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        self._last_error_message = None
+
         try:
             # Build update query
             set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
@@ -260,8 +280,13 @@ class MetadataManager:
 
             return False
 
-        except sqlite3.Error as e:
-            print(f"Database error: {e}")
+        except sqlite3.Error as exc:
+            self._last_error_message = emit_user_message(
+                exc,
+                "Unable to update file metadata.",
+                logger=logger,
+                context="MetadataManager.update_file_metadata",
+            )
             conn.rollback()
             return False
 
@@ -498,6 +523,8 @@ class MetadataManager:
         Returns:
             True if successful
         """
+        self._last_error_message = None
+
         try:
             files = self.list_all_files(limit=10000)
 
@@ -532,6 +559,11 @@ class MetadataManager:
 
             return True
 
-        except Exception as e:
-            print(f"Export error: {e}")
+        except Exception as exc:
+            self._last_error_message = emit_user_message(
+                exc,
+                "Unable to export metadata.",
+                logger=logger,
+                context="MetadataManager.export_metadata",
+            )
             return False
