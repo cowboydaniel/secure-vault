@@ -114,6 +114,9 @@ If you encounter a "tampering detected" error on first run, see [FIRST_RUN.md](F
 
 ## 🛠️ Usage
 
+For an in-depth walkthrough of configuration files, automation patterns, and
+accessibility guidance, refer to the [CLI Guide](CLI_GUIDE.md).
+
 ### Encrypt a file
 ```bash
 python main.py encrypt --input sensitive_document.pdf --output encrypted.sec
