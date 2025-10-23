@@ -1,8 +1,8 @@
 # Secure Vault Project Roadmap
 
-This roadmap charts the first full release journey for the Secure Vault 512-bit Multi-Layer Encryption System. It captures every major initiative still ahead, organized from foundational milestones through long-term ecosystem goals.
+This roadmap focuses exclusively on the remaining work for the Secure Vault 512-bit Multi-Layer Encryption System. Completed deliverables have been removed so the team can concentrate on what is still outstanding.
 
-## Phase 1 – Core Authentication & Access
+## Near-Term Authentication Enhancements
 
 - [ ] Add an optional numeric PIN pad in the login dialog to improve accessibility on touch devices.
 - [ ] Provide security question prompts as an additional recovery safeguard.
@@ -13,40 +13,46 @@ This roadmap charts the first full release journey for the Secure Vault 512-bit 
 - [ ] Introduce a dedicated lock-screen UI that activates after inactivity rather than relying solely on session timeout.
 - [ ] Offer optional TOTP-based multi-factor authentication with flexible policy controls.
 - [ ] Automate GUI regression checks to cover critical authentication and recovery flows.
+
+### Future Authentication Capabilities
+
 - [ ] Support additional multi-factor methods (hardware keys, WebAuthn/FIDO2).
 - [ ] Explore biometric unlock options where hardware support is available.
 - [ ] Provide account sharing and delegation flows for family or team scenarios.
 - [ ] Enable encrypted cloud backups controlled by the user.
 - [ ] Issue printable emergency access codes for disaster recovery.
 
-## Phase 2 – Security & Resilience
+## Phase 3 – Security & Performance (In Progress)
 
-### Entropy & Randomness
+### 3.0 Entropy System Completion
 - [ ] Expand entropy sources to include system interrupts, network timing, disk I/O timing, and user input timing.
 - [ ] Extend statistical analysis with advanced randomness tests beyond the existing suite.
 - [ ] Benchmark entropy collection across supported platforms and publish comparisons.
 - [ ] Document concrete usage examples for the entropy APIs to guide integrators.
+
+### 3.1 Key Management Enhancements
+- [ ] Integrate ML-KEM for post-quantum key exchange, including a hybrid mode with classical algorithms.
+- [ ] Optimize ML-KEM performance to keep latency within acceptable bounds for interactive use.
+- [ ] Design and implement multi-party computation workflows for shared key operations, including threshold signatures and distributed key generation.
+- [ ] Define formal key ceremony procedures for high-security deployments with verification steps and witness requirements.
+
+### 3.2 Entropy Optimization
 - [ ] Benchmark entropy sources for quality and throughput to identify tuning opportunities.
 - [ ] Optimize collection strategies per platform and add automatic failover when sources degrade.
 - [ ] Support modern hardware RNG instructions such as RDRAND and RDSEED in a portable way.
 - [ ] Improve entropy mixing and extraction algorithms for better diffusion.
 
-### Key Management & Cryptography
-- [ ] Integrate ML-KEM for post-quantum key exchange, including a hybrid mode with classical algorithms.
-- [ ] Optimize ML-KEM performance to keep latency within acceptable bounds for interactive use.
-- [ ] Design and implement multi-party computation workflows for shared key operations, including threshold signatures and distributed key generation.
-- [ ] Define formal key ceremony procedures for high-security deployments with verification steps and witness requirements.
-- [ ] Add additional post-quantum cryptography options to complement ML-KEM.
-
-### Performance & Hardware Acceleration
+### 3.3 Performance Profiling
 - [ ] Identify remaining bottlenecks in the encryption pipeline using the benchmarking suite.
 - [ ] Add parallel execution paths where safe to do so.
 - [ ] Reduce memory usage for very large file operations to improve performance on constrained systems.
+
+### 3.4 Hardware Acceleration
 - [ ] Research CPU acceleration features (for example AES-NI) and document integration requirements.
 - [ ] Implement platform-specific acceleration hooks once research is complete.
 - [ ] Evaluate GPU acceleration for batch encryption and decryption workloads.
 
-## Phase 3 – Platform Expansion
+## Phase 4 – Platform Expansion
 
 ### Windows Support
 - [ ] Integrate with the Windows taskbar and notification system.
@@ -59,7 +65,7 @@ This roadmap charts the first full release journey for the Secure Vault 512-bit 
 - [ ] Switch to native macOS dialogs for a cohesive user experience.
 - [ ] Explore Touch Bar affordances on supported hardware.
 
-## Phase 4 – User Experience & Documentation
+## Phase 5 – User Experience
 
 ### Command-Line Interface
 - [ ] Deliver an intuitive CLI with comprehensive help text and examples.
@@ -78,17 +84,18 @@ This roadmap charts the first full release journey for the Secure Vault 512-bit 
 - [ ] Add internationalization support throughout the GUI.
 - [ ] Implement screen capture protection to guard sensitive windows.
 
-## Phase 5 – Advanced Features
+## Phase 6 – Advanced Features
 
 - [ ] Implement policy-driven key rotation backed by audit trails.
 - [ ] Extend hardware security module integrations beyond the existing abstraction layer for production deployments.
 - [ ] Build secure multi-party computation tooling suitable for enterprise workflows.
+- [ ] Add additional post-quantum cryptography options to complement ML-KEM.
 - [ ] Integrate with major cloud storage providers while preserving end-to-end encryption.
 - [ ] Create secure file sharing capabilities with revocation controls.
 - [ ] Develop a companion mobile application that respects the same security guarantees.
 - [ ] Build a browser extension to bridge vault functionality to web workflows.
 
-## Phase 6 – Maturity & Ecosystem
+## Phase 7 – Maturity & Ecosystem
 
 ### Security Certification
 - [ ] Schedule and complete an independent security audit.
@@ -124,4 +131,4 @@ This roadmap charts the first full release journey for the Secure Vault 512-bit 
 5. Incorporate feedback promptly to keep reviews moving.
 
 ---
-*This roadmap is a living document focused on upcoming work. Last updated: 2025-10-23.*
+*This roadmap is a living document focused on upcoming work. Last updated: 2025-10-22.*
