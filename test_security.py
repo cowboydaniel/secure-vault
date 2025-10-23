@@ -5,6 +5,7 @@ This module contains comprehensive tests for all cryptographic primitives,
 with a focus on security properties and edge cases.
 """
 
+import base64
 import json
 import os
 import shutil
@@ -13,6 +14,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from audit_logger import (
     AuditEventType,
@@ -219,13 +221,19 @@ class TestAuditLoggerSanitization(unittest.TestCase):
     """Tests to ensure audit logs never leak sensitive information."""
 
     def test_log_entries_are_sanitized(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
             log_dir = os.path.join(tmpdir, 'logs')
+            auth_db_path = os.path.join(tmpdir, 'users.db')
             logger = AuditLogger(
                 log_dir=log_dir,
                 max_log_size=1024,
                 max_backups=2,
                 enable_tamper_detection=True,
+                auth_db_path=auth_db_path,
             )
             logger.log_event(
                 AuditEventType.AUTH_SUCCESS,
@@ -267,6 +275,96 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                 self.assertEqual(mode, 0o700)
 
             logger.close()
+
+    def test_audit_key_and_chain_wrapped(self):
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
+            log_dir = os.path.join(tmpdir, 'logs')
+            auth_db_path = os.path.join(tmpdir, 'users.db')
+            logger = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+            try:
+                logger.log_event(
+                    AuditEventType.SYSTEM_START,
+                    AuditSeverity.INFO,
+                    "system start",
+                    {},
+                )
+
+                key_file = Path(log_dir) / '.audit_log.key'
+                self.assertTrue(key_file.exists())
+                key_payload = json.loads(key_file.read_text())
+                self.assertEqual(key_payload.get('version'), 2)
+                self.assertIn('ciphertext', key_payload)
+
+                combined_material = logger._log_key + logger._log_iv
+                encoded_material = base64.b64encode(combined_material).decode('ascii')
+                self.assertNotIn(encoded_material, key_file.read_text())
+
+                chain_file = Path(log_dir) / '.audit_log.chain'
+                self.assertTrue(chain_file.exists())
+                chain_payload = json.loads(chain_file.read_text())
+                self.assertEqual(chain_payload.get('version'), 1)
+                self.assertIn('ciphertext', chain_payload)
+
+                first_hash = logger._last_hash
+            finally:
+                logger.close()
+
+            reopened = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+            try:
+                self.assertEqual(reopened._last_hash, first_hash)
+            reopened.log_event(
+                AuditEventType.SYSTEM_START,
+                AuditSeverity.INFO,
+                "restarted",
+                {},
+            )
+        finally:
+            reopened.close()
+
+    def test_audit_missing_chain_detected(self):
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
+            log_dir = os.path.join(tmpdir, 'logs')
+            auth_db_path = os.path.join(tmpdir, 'users.db')
+            logger = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+            try:
+                logger.log_event(
+                    AuditEventType.SYSTEM_START,
+                    AuditSeverity.INFO,
+                    "system start",
+                    {},
+                )
+            finally:
+                logger.close()
+
+            chain_file = Path(log_dir) / '.audit_log.chain'
+            self.assertTrue(chain_file.exists())
+            chain_file.unlink()
+
+            with self.assertRaises(RuntimeError):
+                AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+
+    def test_audit_plaintext_material_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir, \
+                mock.patch.dict(os.environ, {
+                    "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
+                    "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
+                }):
+            log_dir = os.path.join(tmpdir, 'logs')
+            os.makedirs(log_dir, exist_ok=True)
+            key_file = Path(log_dir) / '.audit_log.key'
+            key_file.write_text(base64.b64encode(os.urandom(64)).decode('ascii'))
+            auth_db_path = os.path.join(tmpdir, 'users.db')
+
+            with self.assertRaises(RuntimeError):
+                AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
 
 
 class TestErrorHandlingSanitization(unittest.TestCase):

@@ -17,6 +17,8 @@ class AuthQueueStressTests(unittest.TestCase):
         self._prev_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
         self._temp_dir = tempfile.TemporaryDirectory()
         os.environ["SECURE_VAULT_STATE_DIR"] = self._temp_dir.name
+        self._prev_wrap_secret = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "queue-test-wrap"
         self.addCleanup(self._cleanup_tempdir)
 
         db_path = os.path.join(self._temp_dir.name, "auth.db")
@@ -40,6 +42,10 @@ class AuthQueueStressTests(unittest.TestCase):
             os.environ.pop("SECURE_VAULT_STATE_DIR", None)
         else:
             os.environ["SECURE_VAULT_STATE_DIR"] = self._prev_state_dir
+        if self._prev_wrap_secret is None:
+            os.environ.pop("SECURE_VAULT_GUARD_WRAP_SECRET", None)
+        else:
+            os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = self._prev_wrap_secret
         self._temp_dir.cleanup()
 
     def test_concurrent_pin_logins_bounded_by_queue(self) -> None:
