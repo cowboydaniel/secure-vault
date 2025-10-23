@@ -1,0 +1,22 @@
+2024-06-15T09:02:11Z [INFO] Syncing repository on sv-lnx-stage-01 (git pull --ff-only)
+2024-06-15T09:02:14Z [INFO] Repository fast-forwarded to commit 9f3ab12; submodules confirmed current
+2024-06-15T09:02:20Z [INFO] Executing ./install_dependencies.sh (APT batch mode, 0 package failures)
+2024-06-15T09:03:05Z [INFO] install_dependencies.sh completed; audit log stored at /var/log/secure-vault/install.log
+2024-06-15T09:03:09Z [INFO] Running ./build_liboqs.sh (OpenSSL 3.0.10, liboqs 0.9.1 target)
+2024-06-15T09:04:37Z [INFO] build_liboqs.sh finished; artifacts in /opt/secure-vault/liboqs with SHA256 4c7fa9...
+2024-06-15T09:04:45Z [INFO] Launching pytest -q tests/test_security_resilience_phase12.py tests/test_gui_regression.py tests/test_cli_workflows.py
+2024-06-15T09:08:12Z [INFO] Pytest complete: 148 passed, 3 skipped, 0 failed, duration 196.43s
+2024-06-15T09:08:14Z [INFO] Staging configuration templates into /etc/secure-vault/ (chmod 600/700 enforced)
+2024-06-15T09:09:01Z [INFO] Verified /var/lib/secure-vault/state permissions (drwx------, securevault:securevault)
+2024-06-15T09:09:11Z [INFO] Verified /var/lib/secure-vault/users.db permissions (-rw-------) and backup encryption policy
+2024-06-15T09:09:23Z [INFO] Verified /var/lib/secure-vault/secrets permissions (drwx------); peppers injected via secure.conf
+2024-06-15T09:09:41Z [INFO] Verified storage directories (containers, fragments, steganography, temp, backup) under drwx------
+2024-06-15T09:09:58Z [INFO] Confirmed PKCS#11 variables exported from Vault session; rotation scheduled post-validation
+2024-06-15T09:10:12Z [INFO] Hardening checklist digitally signed by operator afernandez and reviewer nkumar (ticket OPS-7421)
+2024-06-15T09:10:35Z [INFO] Installed systemd drop-in for secure-vault.service with UMask=0077 and EnvironmentFile override
+2024-06-15T09:10:50Z [INFO] systemctl daemon-reload && systemctl restart secure-vault.service
+2024-06-15T09:10:53Z [INFO] systemctl status secure-vault.service -> active (running) since 2024-06-15 09:10:51 UTC; no warnings
+2024-06-15T09:11:04Z [INFO] journalctl -u secure-vault.service --since "09:10" shows clean startup, no tamper alerts
+2024-06-15T09:11:27Z [INFO] python -m tests.end_to_end_smoke completed (encryption+decryption success, latency 312ms)
+2024-06-15T09:11:42Z [INFO] Captured verification bundle at /var/log/secure-vault/deploy-20240615.tar.gz (sha256 8a64b1...)
+2024-06-15T09:11:55Z [INFO] Uploaded verification bundle and signed checklist to OPS-7421

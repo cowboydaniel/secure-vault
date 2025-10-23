@@ -1,7 +1,10 @@
 # Deployment Runbook
 
 This runbook captures the operational steps for rolling out SecureVault. It is
-intended for operators with shell access to the target host.
+intended for operators with shell access to the target host. Compliance evidence
+for the latest dry-run is archived in
+[`DEPLOYMENT_COMPLIANCE_REPORT.md`](DEPLOYMENT_COMPLIANCE_REPORT.md) alongside
+`logs/deployment_validation_2024-06-15.log`.
 
 ## 1. Preparation
 
