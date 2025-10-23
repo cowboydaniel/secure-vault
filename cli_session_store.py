@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
+
+from platform_parity import KeychainAdapter
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -40,10 +43,31 @@ class PersistentSession:
 class EncryptedSessionStore:
     """Encrypt and persist CLI sessions for restart resilience."""
 
-    def __init__(self, store_path: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        store_path: Optional[Path] = None,
+        *,
+        keychain: Optional[KeychainAdapter] = None,
+        keychain_storage_path: Optional[Path] = None,
+        keychain_account: str = "cli_session_master",
+        keychain_prefer_fallback: Optional[bool] = None,
+    ) -> None:
         config_dir = Path(default_config.config_dir)
         self._store_path = store_path or config_dir / "cli_sessions.enc"
         self._key_info_path = self._store_path.with_suffix(".keyinfo")
+        env_value = os.environ.get("SECURE_VAULT_KEYCHAIN_FALLBACK")
+        prefer_fallback = (
+            keychain_prefer_fallback
+            if keychain_prefer_fallback is not None
+            else bool(env_value)
+            and str(env_value).lower() not in {"0", "false", "no"}
+        )
+        self._keychain = keychain or KeychainAdapter(
+            "SecureVaultCLI",
+            prefer_fallback=prefer_fallback,
+            storage_path=keychain_storage_path,
+        )
+        self._keychain_account = keychain_account
         self._encryption_key = self._load_or_rotate_key()
 
     # ------------------------------------------------------------------
@@ -90,26 +114,79 @@ class EncryptedSessionStore:
     # ------------------------------------------------------------------
     # Encryption helpers
     # ------------------------------------------------------------------
+    def _decode_key_payload(
+        self, payload: Dict[str, object]
+    ) -> Optional[Tuple[bytes, datetime]]:
+        try:
+            key_b64 = str(payload["key"])
+            created_raw = str(payload["created_at"])
+        except KeyError:
+            return None
+        try:
+            raw_key = base64.b64decode(key_b64)
+            created = datetime.fromisoformat(created_raw)
+        except (ValueError, binascii.Error, TypeError):
+            return None
+        return raw_key, created
+
+    def _load_key_from_keychain(self) -> Optional[Dict[str, object]]:
+        secret = self._keychain.retrieve_secret(self._keychain_account)
+        if not secret:
+            return None
+        try:
+            return json.loads(secret)
+        except json.JSONDecodeError:
+            logger.warning("Invalid keychain payload detected; rotating key.")
+            return None
+
+    def _load_key_from_file(self) -> Optional[Dict[str, object]]:
+        if not self._key_info_path.exists():
+            return None
+        try:
+            return json.loads(self._key_info_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - maintain compatibility
+            logger.warning("Failed to read legacy CLI session key file; rotating.")
+            return None
+
+    def _store_key_payload(self, payload: Dict[str, object]) -> None:
+        serialized = json.dumps(payload)
+        self._keychain.store_secret(self._keychain_account, serialized)
+        self._write_legacy_key_file(payload)
+
+    def _write_legacy_key_file(self, payload: Dict[str, object]) -> None:
+        try:
+            self._key_info_path.parent.mkdir(parents=True, exist_ok=True)
+            self._key_info_path.write_text(json.dumps(payload), encoding="utf-8")
+            os.chmod(self._key_info_path, 0o600)
+        except OSError:
+            logger.debug("Unable to persist legacy key info file", exc_info=True)
+
     def _load_or_rotate_key(self) -> bytes:
         now = datetime.utcnow()
-        if self._key_info_path.exists():
-            try:
-                key_info = json.loads(self._key_info_path.read_text(encoding="utf-8"))
-                raw_key = base64.b64decode(key_info["key"])
-                created = datetime.fromisoformat(key_info["created_at"])
+
+        key_payload = self._load_key_from_keychain()
+        if key_payload:
+            decoded = self._decode_key_payload(key_payload)
+            if decoded is not None:
+                raw_key, created = decoded
                 if now - created < KEY_TTL:
                     return self._derive_application_key(raw_key)
-            except Exception:  # noqa: BLE001 - fallback to fresh key
-                logger.warning("Unable to reuse CLI session key; rotating.")
+
+        legacy_payload = self._load_key_from_file()
+        if legacy_payload:
+            decoded = self._decode_key_payload(legacy_payload)
+            if decoded is not None:
+                raw_key, created = decoded
+                if now - created < KEY_TTL:
+                    self._store_key_payload(legacy_payload)
+                    return self._derive_application_key(raw_key)
 
         raw_key = os.urandom(32)
-        key_info_payload = {
+        payload = {
             "key": base64.b64encode(raw_key).decode("ascii"),
             "created_at": now.isoformat(),
         }
-        self._key_info_path.parent.mkdir(parents=True, exist_ok=True)
-        self._key_info_path.write_text(json.dumps(key_info_payload), encoding="utf-8")
-        os.chmod(self._key_info_path, 0o600)
+        self._store_key_payload(payload)
         return self._derive_application_key(raw_key)
 
     def _derive_application_key(self, raw_key: bytes) -> bytes:
