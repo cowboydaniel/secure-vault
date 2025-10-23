@@ -362,8 +362,12 @@ class KeyManager:
                 # Fall back to file-based HSM
                 keys_dir = self.config.get('keys_dir', 'hsm_keys')
                 self._hsm = HSMFactory.create_session(
-                    HSMType.FILE_BASED, 
-                    {'keys_dir': keys_dir}
+                    HSMType.FILE_BASED,
+                    {
+                        'keys_dir': keys_dir,
+                        'master_secret': self.config.get('master_secret'),
+                        'master_secret_provider': self.config.get('master_secret_provider'),
+                    }
                 )
             
             self._hsm_available = self._hsm.is_available()

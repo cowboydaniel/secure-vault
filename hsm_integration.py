@@ -5,6 +5,7 @@ This module provides an abstraction layer for interacting with Hardware Security
 It supports multiple HSM backends and provides a unified interface for cryptographic operations.
 """
 
+import base64
 import logging
 import time
 from typing import Optional, Union, Tuple, List, Dict, Any
@@ -19,8 +20,9 @@ import struct
 from pathlib import Path
 
 # Import existing security utilities
-from crypto_utils import secure_compare, secure_wipe
+from crypto_utils import derive_key_hkdf_sha3_512, secure_compare, secure_wipe
 from secure_memory import SecureBytes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 try:
     import pkcs11
@@ -199,18 +201,105 @@ class PKCS11HSMSession(HSMSession):
 
 class FileBasedHSMSession(HSMSession):
     """File-based HSM simulator for development and testing"""
-    
+
+    DERIVATION_SALT = hashlib.sha256(b"FileBasedHSMSession::storage").digest()
+    DERIVATION_INFO = b"file-based-hsm-storage-v1"
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.keys_dir = Path(config.get('keys_dir', 'hsm_keys'))
         self.keys_dir.mkdir(exist_ok=True, mode=0o700)
-        self.keys = {}
+        self.keys: Dict[str, Dict[str, Any]] = {}
+        self._storage_key = self._initialize_storage_key(config)
         self._load_keys()
+
+    def _initialize_storage_key(self, config: Dict[str, Any]) -> bytearray:
+        """Derive the storage encryption key from the master secret."""
+
+        master_secret = config.get('master_secret')
+        if master_secret is None:
+            provider = config.get('master_secret_provider')
+            if callable(provider):
+                master_secret = provider()
+
+        if master_secret is None:
+            master_secret = self._load_or_create_local_secret()
+
+        if not isinstance(master_secret, (bytes, bytearray)):
+            raise TypeError("master_secret must be bytes-like")
+
+        master_secret_bytes = bytes(master_secret)
+        derived_key = derive_key_hkdf_sha3_512(
+            master_secret_bytes,
+            length=32,
+            salt=self.DERIVATION_SALT,
+            info=self.DERIVATION_INFO,
+        )
+
+        if isinstance(master_secret, bytearray):
+            try:
+                secure_wipe(master_secret)
+            except TypeError:
+                pass
+
+        temp_buffer = bytearray(master_secret_bytes)
+        secure_wipe(temp_buffer)
+
+        return bytearray(derived_key)
+
+    def _load_or_create_local_secret(self) -> bytes:
+        """Fallback secret storage when no master secret is supplied."""
+
+        secret_path = self.keys_dir / '.file_hsm_master_secret'
+        if secret_path.exists():
+            try:
+                with open(secret_path, 'rb') as secret_file:
+                    data = secret_file.read()
+                return base64.b64decode(data)
+            except (OSError, base64.binascii.Error) as exc:
+                logger.warning("Failed to load local master secret: %s", exc)
+
+        secret = os.urandom(64)
+        try:
+            with open(secret_path, 'wb') as secret_file:
+                secret_file.write(base64.b64encode(secret))
+            os.chmod(secret_path, 0o600)
+        except OSError as exc:
+            logger.warning("Failed to persist local master secret: %s", exc)
+
+        return secret
+
+    @staticmethod
+    def _build_aad(key_id: str, key_type: str) -> bytes:
+        return f"{key_id}:{key_type}".encode('utf-8')
+
+    def _encrypt_key_material(self, key_id: str, key_type: str, key_material: bytes) -> Dict[str, str]:
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(bytes(self._storage_key))
+        aad = self._build_aad(key_id, key_type)
+        ciphertext = aesgcm.encrypt(nonce, key_material, aad)
+        return {
+            'nonce': base64.b64encode(nonce).decode('ascii'),
+            'ciphertext': base64.b64encode(ciphertext).decode('ascii'),
+        }
+
+    def _decrypt_key_material(self, key_id: str, key_type: str, payload: Any) -> bytes:
+        if isinstance(payload, dict) and 'ciphertext' in payload and 'nonce' in payload:
+            nonce = base64.b64decode(payload['nonce'])
+            ciphertext = base64.b64decode(payload['ciphertext'])
+            aesgcm = AESGCM(bytes(self._storage_key))
+            aad = self._build_aad(key_id, key_type)
+            return aesgcm.decrypt(nonce, ciphertext, aad)
+
+        if isinstance(payload, str):
+            return bytes.fromhex(payload)
+
+        raise ValueError("Invalid key payload format")
     
     def _load_keys(self):
         """Load keys from the filesystem"""
         self.keys = {}
-        for key_file in self.keys_dir.glob('*'):  
+        for key_file in self.keys_dir.glob('*.json'):
             try:
                 with open(key_file, 'r') as f:
                     key_data = json.load(f)
@@ -229,7 +318,7 @@ class FileBasedHSMSession(HSMSession):
         key_info = {
             'key_id': key_id,
             'key_type': key_type,
-            'key_data': key_data.hex(),
+            'key_data': self._encrypt_key_material(key_id, key_type, key_data),
             'extractable': extractable,
             'created_at': int(time.time())
         }
@@ -272,7 +361,7 @@ class FileBasedHSMSession(HSMSession):
             key_info = {
                 'key_id': key_id,
                 'key_type': key_type,
-                'key_data': key_data.hex(),
+                'key_data': self._encrypt_key_material(key_id, key_type, key_data),
                 'extractable': True,  # For stored data, we assume it's extractable
                 'created_at': int(time.time()),
                 'metadata': metadata or {}
@@ -306,7 +395,11 @@ class FileBasedHSMSession(HSMSession):
             if key_id in self.keys:
                 key_data = self.keys[key_id]
                 if 'key_data' in key_data:
-                    return bytes.fromhex(key_data['key_data'])
+                    return self._decrypt_key_material(
+                        key_data['key_id'],
+                        key_data.get('key_type', 'GENERIC'),
+                        key_data['key_data']
+                    )
                     
             # Try to load from file if not in memory
             key_path = self.keys_dir / f"{key_id}.json"
@@ -314,7 +407,11 @@ class FileBasedHSMSession(HSMSession):
                 with open(key_path, 'r') as f:
                     key_data = json.load(f)
                     self.keys[key_id] = key_data  # Cache it
-                    return bytes.fromhex(key_data['key_data'])
+                    return self._decrypt_key_material(
+                        key_data['key_id'],
+                        key_data.get('key_type', 'GENERIC'),
+                        key_data['key_data']
+                    )
                     
             return None
             
@@ -346,10 +443,22 @@ class FileBasedHSMSession(HSMSession):
                     self.keys[key_id] = key_data  # Cache it
 
             # Convert to HSMKey object
+            public_data = None
+            if key_data.get('key_data'):
+                try:
+                    public_data = self._decrypt_key_material(
+                        key_data['key_id'],
+                        key_data.get('key_type', 'GENERIC'),
+                        key_data['key_data']
+                    )
+                except Exception as exc:
+                    logger.error(f"Failed to decrypt key {key_id}: {exc}")
+                    public_data = None
+
             return HSMKey(
                 key_id=key_data['key_id'],
                 key_type=key_data.get('key_type', 'GENERIC'),
-                public_data=bytes.fromhex(key_data.get('key_data', '')) if key_data.get('key_data') else None,
+                public_data=public_data,
                 attributes=key_data.get('metadata', {})
             )
 
@@ -491,6 +600,11 @@ class FileBasedHSMSession(HSMSession):
             if isinstance(self.keys[key_id], dict) and 'key_data' in self.keys[key_id]:
                 self.keys[key_id]['key_data'] = 'REDACTED'
         self.keys.clear()
+        if isinstance(self._storage_key, bytearray):
+            try:
+                secure_wipe(self._storage_key)
+            except TypeError:
+                pass
 
 class HSMFactory:
     """Factory for creating HSM sessions"""
