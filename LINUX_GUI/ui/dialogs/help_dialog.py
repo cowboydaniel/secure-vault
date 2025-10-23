@@ -36,6 +36,9 @@ class HelpDialog(QDialog):
             <li><b>Ctrl+K</b>: Key Manager</li>
             <li><b>Ctrl+Q</b>: Quit application</li>
         </ul>
+        <h3>Clipboard Security</h3>
+        <p>When SecureVault copies sensitive data it automatically clears the clipboard after a short delay.</p>
+        <p>You can adjust this timeout or disable the auto-clear feature in <b>Settings → Security</b>.</p>
         """)
         help_layout.addWidget(help_text)
         

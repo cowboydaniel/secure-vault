@@ -3,10 +3,9 @@ Test module for NIST SP 800-22 statistical tests on entropy sources.
 """
 
 import unittest
-import os
-import numpy as np
 from test_nist_sp800_22 import test_nist_suite
 from entropy_monitor import EntropySource, EntropyMonitor
+from crypto_utils import secure_random_bytes
 
 
 class TestEntropyNIST(unittest.TestCase):
@@ -18,7 +17,7 @@ class TestEntropyNIST(unittest.TestCase):
         
         # Generate test data from different sources
         self.test_data = {
-            'urandom': os.urandom(1024 * 8),  # 8KB from OS urandom
+            'urandom': secure_random_bytes(1024 * 8),  # 8KB from OS RNG
             'zeros': bytes([0] * 1024),       # All zeros (should fail tests)
             'ones': bytes([255] * 1024),      # All ones (should fail tests)
             'alternating': bytes([i % 2 * 255 for i in range(1024)]),  # 0101...
@@ -71,7 +70,7 @@ class TestEntropyNIST(unittest.TestCase):
         samples = []
         for source in EntropySource:
             try:
-                sample = self.monitor.collect_sample(source, os.urandom(1024))
+                sample = self.monitor.collect_sample(source, secure_random_bytes(1024))
                 samples.append((source.name, sample.data))
             except Exception as e:
                 print(f"Warning: Could not collect sample from {source.name}: {e}")

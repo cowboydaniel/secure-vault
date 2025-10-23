@@ -6,10 +6,12 @@ This module implements the fifth and final layer: Secure storage with
 steganography, metadata protection, and distributed storage capabilities.
 """
 
+import io
 import os
 import time
 import struct
 import hashlib
+import stat
 from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +19,8 @@ import logging
 import json
 import sqlite3
 from pathlib import Path
+
+from file_utils import safe_file_open
 
 from crypto_utils import (
     secure_random_bytes,
@@ -30,6 +34,67 @@ from constants import EncryptionMetadata
 from audit_logger import sanitize_audit_details
 
 logger = logging.getLogger(__name__)
+
+SCHEMA_CONFIG_FILENAME = StorageConfig.SCHEMA_CONFIG_FILE
+
+FILE_METADATA_TABLE = "file_metadata"
+FILE_METADATA_COLUMNS = (
+    "file_id",
+    "original_name",
+    "storage_format",
+    "compression_type",
+    "encryption_layers",
+    "total_size",
+    "storage_paths",
+    "checksum",
+    "timestamp",
+    "classification_level",
+    "access_count",
+    "last_accessed",
+)
+
+ACCESS_LOG_TABLE = "access_log"
+ACCESS_LOG_COLUMNS = (
+    "id",
+    "file_id",
+    "operation",
+    "timestamp",
+    "success",
+    "details",
+)
+
+SUPPORTED_SCHEMA_IDENTIFIERS = {
+    FILE_METADATA_TABLE: set(FILE_METADATA_COLUMNS),
+    ACCESS_LOG_TABLE: set(ACCESS_LOG_COLUMNS),
+}
+
+FILE_METADATA_CREATE_SQL = f"""
+                CREATE TABLE IF NOT EXISTS {FILE_METADATA_TABLE} (
+                    file_id TEXT PRIMARY KEY,
+                    original_name TEXT NOT NULL,
+                    storage_format TEXT NOT NULL,
+                    compression_type TEXT NOT NULL,
+                    encryption_layers TEXT NOT NULL,
+                    total_size INTEGER NOT NULL,
+                    storage_paths TEXT NOT NULL,
+                    checksum BLOB NOT NULL,
+                    timestamp REAL NOT NULL,
+                    classification_level INTEGER NOT NULL,
+                    access_count INTEGER DEFAULT 0,
+                    last_accessed REAL
+                )
+            """
+
+ACCESS_LOG_CREATE_SQL = f"""
+                CREATE TABLE IF NOT EXISTS {ACCESS_LOG_TABLE} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    details TEXT
+                )
+            """
 
 class StorageFormat(Enum):
     """Storage format types"""
@@ -120,12 +185,76 @@ class SecureStorageEngine:
         # Create .secure_vault marker
         marker_file = self.storage_dir / ".secure_vault"
         if not marker_file.exists():
-            with open(marker_file, 'w') as f:
+            with safe_file_open(marker_file, 'w') as f:
                 f.write(f"Secure Vault Storage\nCreated: {time.time()}\n")
             marker_file.chmod(0o600)
-    
+
+    def _validate_schema_config(self):
+        """Validate optional schema configuration file"""
+        config_path = self.storage_dir / SCHEMA_CONFIG_FILENAME
+
+        if not config_path.exists():
+            return
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as config_file:
+                config_data = json.load(config_file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid schema configuration JSON: {exc}") from exc
+
+        tables = config_data.get('tables')
+        if tables is None:
+            raise ValueError("Schema configuration must include a 'tables' mapping.")
+        if not isinstance(tables, dict):
+            raise ValueError("Schema configuration 'tables' entry must be a mapping.")
+
+        supported_tables = ', '.join(sorted(SUPPORTED_SCHEMA_IDENTIFIERS))
+
+        for identifier, table_config in tables.items():
+            if identifier not in SUPPORTED_SCHEMA_IDENTIFIERS:
+                raise ValueError(
+                    f"Unsupported table identifier '{identifier}' in schema configuration. "
+                    f"Supported tables: {supported_tables}."
+                )
+
+            if not isinstance(table_config, dict):
+                raise ValueError(
+                    f"Schema configuration for table '{identifier}' must be a mapping of options."
+                )
+
+            provided_name = table_config.get('name')
+            if provided_name is not None and provided_name != identifier:
+                raise ValueError(
+                    f"Unsupported table name '{provided_name}' for identifier '{identifier}'. "
+                    f"Only '{identifier}' is supported."
+                )
+
+            columns = table_config.get('columns')
+            if columns is None:
+                continue
+
+            if not isinstance(columns, list):
+                raise ValueError(
+                    f"Columns for table '{identifier}' must be provided as a list of strings."
+                )
+
+            invalid_columns = [
+                column for column in columns
+                if column not in SUPPORTED_SCHEMA_IDENTIFIERS[identifier]
+            ]
+
+            if invalid_columns:
+                supported_columns = ', '.join(sorted(SUPPORTED_SCHEMA_IDENTIFIERS[identifier]))
+                invalid_list = ', '.join(invalid_columns)
+                raise ValueError(
+                    f"Unsupported column identifiers for table '{identifier}': {invalid_list}. "
+                    f"Supported columns: {supported_columns}."
+                )
+
     def _initialize_metadata_db(self):
         """Initialize SQLite database for metadata"""
+        self._validate_schema_config()
+
         with sqlite3.connect(self.metadata_db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS file_metadata (
@@ -161,6 +290,9 @@ class SecureStorageEngine:
             columns = {row[1] for row in cursor.fetchall()}
             if 'user_id' not in columns:
                 conn.execute("ALTER TABLE access_log ADD COLUMN user_id TEXT")
+            conn.execute(FILE_METADATA_CREATE_SQL)
+
+            conn.execute(ACCESS_LOG_CREATE_SQL)
 
             conn.commit()
     
@@ -286,12 +418,12 @@ class SecureStorageEngine:
         salt_file = self.storage_dir / ".system_salt"
         
         if salt_file.exists():
-            with open(salt_file, 'rb') as f:
+            with safe_file_open(salt_file, 'rb') as f:
                 return f.read()
         else:
             # Generate new system salt
             salt = secure_random_bytes(SECURITY_LEVEL_BYTES)
-            with open(salt_file, 'wb') as f:
+            with safe_file_open(salt_file, 'wb') as f:
                 f.write(salt)
             salt_file.chmod(0o600)
             return salt
@@ -430,20 +562,22 @@ class SecureStorageEngine:
         
         return paths
     
-    def _write_container_to_storage(self, container_data: bytes, 
-                                  storage_paths: List[str], 
+    def _write_container_to_storage(self, container_data: bytes,
+                                  storage_paths: List[str],
                                   storage_format: StorageFormat):
         """Write container to storage locations"""
         if storage_format == StorageFormat.ENCRYPTED_CONTAINER:
             # Write single container
-            with open(storage_paths[0], 'wb') as f:
+            with safe_file_open(storage_paths[0], 'wb') as f:
                 f.write(container_data)
             os.chmod(storage_paths[0], 0o600)
             
+            self._write_file(storage_paths[0], container_data)
+
         elif storage_format == StorageFormat.DISTRIBUTED_SHARES:
             # Split container into fragments
             fragment_size = len(container_data) // len(storage_paths)
-            
+
             for i, path in enumerate(storage_paths):
                 start_offset = i * fragment_size
                 if i == len(storage_paths) - 1:
@@ -452,10 +586,13 @@ class SecureStorageEngine:
                 else:
                     fragment = container_data[start_offset:start_offset + fragment_size]
                 
-                with open(path, 'wb') as f:
+                with safe_file_open(path, 'wb') as f:
                     f.write(fragment)
                 os.chmod(path, 0o600)
                 
+
+                self._write_file(path, fragment)
+
         elif storage_format == StorageFormat.STEGANOGRAPHIC:
             # Hide in steganographic carrier
             self._create_steganographic_container(container_data, storage_paths[0])
@@ -493,7 +630,10 @@ class SecureStorageEngine:
             
             # Reshape and save
             hidden_image = flat_carrier.reshape((side_length, side_length, 3))
-            Image.fromarray(hidden_image).save(output_path, 'PNG')
+            image = Image.fromarray(hidden_image)
+            buffer = io.BytesIO()
+            image.save(buffer, format='PNG')
+            self._write_file(output_path, buffer.getvalue())
             
             logger.info(f"Steganographic container created: {output_path}")
             
@@ -509,8 +649,52 @@ class SecureStorageEngine:
                 if i < len(hidden_data):
                     hidden_data[i] ^= byte
             
-            with open(output_path, 'wb') as f:
+            with safe_file_open(output_path, 'wb') as f:
                 f.write(hidden_data)
+            self._write_file(output_path, hidden_data)
+
+    def _write_file(self, path: Union[str, Path], data: bytes) -> None:
+        """Safely write data to disk with strict permissions."""
+        path_obj = Path(path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        # Refuse to operate on existing symlinks
+        if os.path.lexists(path_obj):
+            existing_stat = os.lstat(path_obj)
+            if stat.S_ISLNK(existing_stat.st_mode):
+                raise RuntimeError(f"Refusing to write to symlinked path: {path_obj}")
+            path_obj.unlink()
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        mode = 0o600
+        path_str = os.fspath(path_obj)
+
+        fd = os.open(path_str, flags, mode)
+        data_view = None
+        try:
+            data_view = memoryview(data)
+            total_written = 0
+            while total_written < len(data_view):
+                written = os.write(fd, data_view[total_written:])
+                if written == 0:
+                    raise IOError(f"Failed to write data to {path_obj}")
+                total_written += written
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+            if data_view is not None:
+                data_view.release()
+
+        final_mode = stat.S_IMODE(os.stat(path_str, follow_symlinks=False).st_mode)
+        if final_mode != mode:
+            os.chmod(path_str, mode)
+            final_mode = stat.S_IMODE(os.stat(path_str, follow_symlinks=False).st_mode)
+
+        assert final_mode == mode, (
+            f"Secure write enforcement failed for {path_obj}: "
+            f"expected 0o600, got {oct(final_mode)}"
+        )
     
     def retrieve_encrypted_data(self,
                                 file_id: str,
@@ -578,14 +762,14 @@ class SecureStorageEngine:
         """Read container from storage paths"""
         if metadata.storage_format == StorageFormat.ENCRYPTED_CONTAINER:
             # Read single container
-            with open(metadata.storage_paths[0], 'rb') as f:
+            with safe_file_open(metadata.storage_paths[0], 'rb') as f:
                 return f.read()
                 
         elif metadata.storage_format == StorageFormat.DISTRIBUTED_SHARES:
             # Reconstruct from fragments
             fragments = []
             for path in metadata.storage_paths:
-                with open(path, 'rb') as f:
+                with safe_file_open(path, 'rb') as f:
                     fragments.append(f.read())
             return b''.join(fragments)
             
@@ -603,7 +787,9 @@ class SecureStorageEngine:
             import numpy as np
             
             # Load image
-            image = Image.open(container_path)
+            with safe_file_open(container_path, 'rb') as image_file:
+                image = Image.open(image_file)
+                image.load()
             image_array = np.array(image)
             flat_array = image_array.flatten()
             
@@ -626,7 +812,7 @@ class SecureStorageEngine:
         except ImportError:
             logger.warning("PIL not available, using simple steganographic extraction")
             # Fallback: simple XOR extraction
-            with open(container_path, 'rb') as f:
+            with safe_file_open(container_path, 'rb') as f:
                 hidden_data = f.read()
             
             # This is a simplified extraction - in practice you'd need
@@ -763,10 +949,10 @@ class SecureStorageEngine:
     def _save_metadata(self, metadata: StorageMetadata):
         """Save metadata to database"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO file_metadata
-                (file_id, original_name, storage_format, compression_type, 
-                 encryption_layers, total_size, storage_paths, checksum, 
+            conn.execute(f"""
+                INSERT OR REPLACE INTO {FILE_METADATA_TABLE}
+                (file_id, original_name, storage_format, compression_type,
+                 encryption_layers, total_size, storage_paths, checksum,
                  timestamp, classification_level, access_count, last_accessed)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -788,8 +974,8 @@ class SecureStorageEngine:
     def _load_metadata(self, file_id: str) -> Optional[StorageMetadata]:
         """Load metadata from database"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            cursor = conn.execute("""
-                SELECT * FROM file_metadata WHERE file_id = ?
+            cursor = conn.execute(f"""
+                SELECT * FROM {FILE_METADATA_TABLE} WHERE file_id = ?
             """, (file_id,))
             
             row = cursor.fetchone()
@@ -814,8 +1000,8 @@ class SecureStorageEngine:
     def _update_access_stats(self, file_id: str):
         """Update file access statistics"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                UPDATE file_metadata 
+            conn.execute(f"""
+                UPDATE {FILE_METADATA_TABLE}
                 SET access_count = access_count + 1, last_accessed = ?
                 WHERE file_id = ?
             """, (time.time(), file_id))
@@ -931,11 +1117,18 @@ class SecureStorageEngine:
             metadata=None,
             message=details
         )
+        """Log access attempt"""
+        with sqlite3.connect(self.metadata_db_path) as conn:
+            conn.execute(f"""
+                INSERT INTO {ACCESS_LOG_TABLE} (file_id, operation, timestamp, success, details)
+                VALUES (?, ?, ?, ?, ?)
+            """, (file_id, operation, time.time(), success, details))
+            conn.commit()
     
     def list_stored_files(self) -> List[StorageMetadata]:
         """List all stored files"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            cursor = conn.execute("SELECT * FROM file_metadata ORDER BY timestamp DESC")
+            cursor = conn.execute(f"SELECT * FROM {FILE_METADATA_TABLE} ORDER BY timestamp DESC")
             
             files = []
             for row in cursor.fetchall():
@@ -986,8 +1179,8 @@ class SecureStorageEngine:
             
             # Remove from database
             with sqlite3.connect(self.metadata_db_path) as conn:
-                conn.execute("DELETE FROM file_metadata WHERE file_id = ?", (file_id,))
-                conn.execute("DELETE FROM access_log WHERE file_id = ?", (file_id,))
+                conn.execute(f"DELETE FROM {FILE_METADATA_TABLE} WHERE file_id = ?", (file_id,))
+                conn.execute(f"DELETE FROM {ACCESS_LOG_TABLE} WHERE file_id = ?", (file_id,))
                 conn.commit()
 
             # Log deletion
@@ -1019,9 +1212,9 @@ class SecureStorageEngine:
         """Get storage engine statistics"""
         with sqlite3.connect(self.metadata_db_path) as conn:
             # Count files by format
-            cursor = conn.execute("""
+            cursor = conn.execute(f"""
                 SELECT storage_format, COUNT(*), SUM(total_size)
-                FROM file_metadata
+                FROM {FILE_METADATA_TABLE}
                 GROUP BY storage_format
             """)
             
@@ -1038,8 +1231,8 @@ class SecureStorageEngine:
                 total_size += row[2] or 0
             
             # Recent activity
-            cursor = conn.execute("""
-                SELECT COUNT(*) FROM access_log 
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM {ACCESS_LOG_TABLE}
                 WHERE timestamp > ?
             """, (time.time() - 86400,))  # Last 24 hours
             

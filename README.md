@@ -73,6 +73,10 @@ A revolutionary encryption system that combines multiple layers of security to p
 - **Metadata Protection**: Encrypted metadata storage with SQLite
 - **Corruption Detection**: Chunked integrity checking for large files
 
+### Operational Hardening
+- Review the [Security Configuration Baseline](SECURITY_CONFIG.md) for required file permissions, environment variables, and the operator hardening checklist.
+- Follow the [Deployment Runbook](DEPLOYMENT_RUNBOOK.md) so operators acknowledge the checklist before production rollouts.
+
 ### Performance & Optimization
 - **High Performance**: Hardware RNG support (RDRAND/RDSEED, TPM)
 - **Smart Compression**: Auto-selecting compression (LZ4, Zstandard, zlib)

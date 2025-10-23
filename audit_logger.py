@@ -5,15 +5,19 @@ This module provides comprehensive security event logging and auditing
 capabilities for tracking all security-relevant operations.
 """
 
-import logging
-import json
-import time
+import base64
+import binascii
 import hashlib
+import hmac
+import json
+import logging
 import os
+import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from typing import Dict, Any, Optional, List, Union
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -168,6 +172,115 @@ class AuditEvent:
         return json.dumps(self.to_dict(), indent=2)
 
 
+REDACTED_PLACEHOLDER = "***REDACTED***"
+SENSITIVE_KEYWORDS = (
+    "pin",
+    "pass",
+    "secret",
+    "key",
+    "token",
+    "identifier",
+)
+
+
+class LogEncryptor:
+    """Simple stream-based encryptor for audit logs."""
+
+    NONCE_SIZE = 16
+    MAC_SIZE = 32
+
+    def __init__(self, key: bytes):
+        if len(key) < 32:
+            raise ValueError("Encryption key must be at least 32 bytes")
+        self._key_material = hashlib.sha3_512(key).digest()
+
+    def _derive_keystream(self, nonce: bytes, length: int) -> bytes:
+        keystream = bytearray()
+        counter = 0
+        while len(keystream) < length:
+            counter_bytes = counter.to_bytes(4, 'big')
+            block = hashlib.sha3_512(self._key_material + nonce + counter_bytes).digest()
+            keystream.extend(block)
+            counter += 1
+        return bytes(keystream[:length])
+
+    def encrypt(self, message: str) -> str:
+        plaintext = message.encode('utf-8')
+        nonce = os.urandom(self.NONCE_SIZE)
+        keystream = self._derive_keystream(nonce, len(plaintext))
+        ciphertext = bytes(p ^ k for p, k in zip(plaintext, keystream))
+        mac = hashlib.sha3_256(self._key_material + nonce + ciphertext).digest()
+        payload = nonce + mac + ciphertext
+        return base64.b64encode(payload).decode('ascii')
+
+    def decrypt(self, payload: str) -> Optional[str]:
+        try:
+            data = base64.b64decode(payload)
+        except (binascii.Error, ValueError):
+            return None
+
+        if len(data) < self.NONCE_SIZE + self.MAC_SIZE:
+            return None
+
+        nonce = data[:self.NONCE_SIZE]
+        mac = data[self.NONCE_SIZE:self.NONCE_SIZE + self.MAC_SIZE]
+        ciphertext = data[self.NONCE_SIZE + self.MAC_SIZE:]
+
+        expected_mac = hashlib.sha3_256(self._key_material + nonce + ciphertext).digest()
+        if not hmac.compare_digest(mac, expected_mac):
+            return None
+
+        keystream = self._derive_keystream(nonce, len(ciphertext))
+        plaintext = bytes(c ^ k for c, k in zip(ciphertext, keystream))
+        try:
+            return plaintext.decode('utf-8')
+        except UnicodeDecodeError:
+            return None
+
+
+class EncryptedRotatingFileHandler(RotatingFileHandler):
+    """Rotating handler that encrypts log records before persistence."""
+
+    def __init__(self,
+                 filename: Union[str, os.PathLike],
+                 max_bytes: int,
+                 backup_count: int,
+                 encryptor: LogEncryptor):
+        super().__init__(
+            filename,
+            mode='a',
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8',
+            delay=True
+        )
+        self._encryptor = encryptor
+        self.setFormatter(logging.Formatter('%(message)s'))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = self.format(record)
+        encrypted_message = self._encryptor.encrypt(message)
+        record = logging.LogRecord(
+            name=record.name,
+            level=record.levelno,
+            pathname=record.pathname,
+            lineno=record.lineno,
+            msg=encrypted_message,
+            args=None,
+            exc_info=None
+        )
+        super().emit(record)
+
+    def _open(self):
+        stream = super()._open()
+        try:
+            if os.name == 'posix':
+                os.chmod(self.baseFilename, 0o600)
+        except PermissionError:
+            pass
+        return stream
+
+
 class AuditLogger:
     """
     Security audit logger for tracking all security-relevant operations
@@ -202,8 +315,18 @@ class AuditLogger:
         self.max_backups = max_backups
         self.enable_tamper_detection = enable_tamper_detection
 
-        # Create log directory if it doesn't exist
+        # Create log directory if it doesn't exist and restrict permissions
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if os.name == 'posix':
+                os.chmod(self.log_dir, 0o700)
+        except PermissionError:
+            pass
+
+        # Load encryption material
+        self._log_key, self._log_iv = self._load_encryption_material()
+        derived_key = hashlib.sha3_512(self._log_key + self._log_iv).digest()
+        self._encryptor = LogEncryptor(derived_key)
 
         # Initialize logging
         self._setup_logging()
@@ -228,24 +351,31 @@ class AuditLogger:
         """Setup Python logging framework"""
         self.logger = logging.getLogger('SecureVault.Audit')
         self.logger.setLevel(logging.DEBUG)
-
-        # File handler
-        file_handler = logging.FileHandler(self.log_file)
-        file_handler.setLevel(logging.DEBUG)
+        self.logger.propagate = False
+        self.logger.handlers.clear()
 
         # Console handler for critical events
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.WARNING)
-
-        # Formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
-        file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
-
-        self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
+
+        # Storage logger for encrypted audit entries
+        self.storage_logger = logging.getLogger('SecureVault.Audit.Storage')
+        self.storage_logger.setLevel(logging.INFO)
+        self.storage_logger.propagate = False
+        self.storage_logger.handlers.clear()
+
+        encrypted_handler = EncryptedRotatingFileHandler(
+            self.log_file,
+            max_bytes=self.max_log_size,
+            backup_count=self.max_backups,
+            encryptor=self._encryptor
+        )
+        self.storage_logger.addHandler(encrypted_handler)
 
     def _generate_session_id(self) -> str:
         """Generate unique session ID"""
@@ -253,11 +383,68 @@ class AuditLogger:
             str(time.time()).encode() + os.urandom(16)
         ).hexdigest()[:16]
 
-    def _compute_event_hash(self, event: AuditEvent) -> bytes:
-        """Compute tamper-evident hash for event"""
-        event_data = event.to_json().encode()
+    def _compute_event_hash(self, payload: Dict[str, Any]) -> bytes:
+        """Compute tamper-evident hash for sanitized payload"""
+        event_data = json.dumps(payload, sort_keys=True).encode()
         hash_input = self._last_hash + event_data
         return hashlib.sha3_512(hash_input).digest()
+
+    def _load_encryption_material(self) -> (bytes, bytes):
+        """Load or create encryption material for log storage."""
+        key_file = self.log_dir / '.audit_log.key'
+        if key_file.exists():
+            data = key_file.read_bytes()
+            if len(data) != 128:
+                raise ValueError("Invalid audit log key file length")
+            key = data[:64]
+            iv = data[64:]
+        else:
+            key = os.urandom(64)
+            iv = os.urandom(64)
+            key_file.write_bytes(key + iv)
+            try:
+                if os.name == 'posix':
+                    os.chmod(key_file, 0o600)
+            except PermissionError:
+                pass
+        return key, iv
+
+    def _sanitize_identifier(self, value: Optional[str]) -> Optional[str]:
+        """Return a hashed representation of identifiers."""
+        if value is None:
+            return None
+        digest = hashlib.sha256(str(value).encode()).hexdigest()
+        return digest[:12]
+
+    def _sanitize_payload(self, payload: Any) -> Any:
+        """Recursively sanitize payload data to remove sensitive fields."""
+        if isinstance(payload, dict):
+            sanitized: Dict[str, Any] = {}
+            for key, value in payload.items():
+                lower_key = key.lower()
+                if any(keyword in lower_key for keyword in SENSITIVE_KEYWORDS):
+                    sanitized[key] = REDACTED_PLACEHOLDER
+                    continue
+                if lower_key.endswith('_id') or lower_key in {'session', 'user'}:
+                    sanitized[key] = self._sanitize_identifier(value)
+                    continue
+                if lower_key in {'source_ip', 'ip_address'}:
+                    sanitized[key] = self._sanitize_identifier(value)
+                    continue
+                sanitized[key] = self._sanitize_payload(value)
+            return sanitized
+        if isinstance(payload, list):
+            return [self._sanitize_payload(item) for item in payload]
+        if isinstance(payload, (bytes, bytearray)):
+            return REDACTED_PLACEHOLDER
+        return payload
+
+    def _decrypt_log_line(self, encoded_line: str) -> Optional[str]:
+        """Decrypt a single encoded log line."""
+        encoded_line = encoded_line.strip()
+        if not encoded_line:
+            return None
+        return self._encryptor.decrypt(encoded_line)
 
     def log_event(self,
                   event_type: AuditEventType,
@@ -293,18 +480,39 @@ class AuditLogger:
         # Update event counters
         self._event_counters[severity] += 1
 
+        sanitized_details = self._sanitize_payload(event.details)
+        sanitized_event = {
+            'timestamp': event.timestamp,
+            'datetime': datetime.fromtimestamp(event.timestamp).isoformat(),
+            'event_type': event.event_type.value,
+            'severity': event.severity.value,
+            'message': event.message,
+            'details': sanitized_details,
+            'user_id': self._sanitize_identifier(event.user_id),
+            'session_id': self._sanitize_identifier(event.session_id),
+            'source_ip': self._sanitize_identifier(event.source_ip),
+        }
+
         # Compute tamper-evident hash
         if self.enable_tamper_detection:
-            event_hash = self._compute_event_hash(event)
-            event.details['event_hash'] = event_hash.hex()[:16]
+            event_hash = self._compute_event_hash(sanitized_event)
+            sanitized_event['details']['event_hash'] = event_hash.hex()[:32]
             self._last_hash = event_hash[:32]
 
-        # Write to log file (JSON format)
         try:
-            with open(self.log_file, 'a') as f:
-                f.write(event.to_json() + '\n')
-        except IOError as e:
-            self.logger.error(f"Failed to write audit log: {e}")
+            json_payload = json.dumps(sanitized_event, separators=(',', ':'))
+            record = logging.LogRecord(
+                name='SecureVault.Audit.Storage',
+                level=logging.INFO,
+                pathname=__file__,
+                lineno=0,
+                msg=json_payload,
+                args=None,
+                exc_info=None
+            )
+            self.storage_logger.handle(record)
+        except Exception as exc:
+            self.logger.error(f"Failed to persist audit event: {exc}")
 
         # Also log to Python logger
         log_level = {
@@ -318,42 +526,6 @@ class AuditLogger:
         self.logger.log(
             log_level,
             f"[{event_type.value}] {message}"
-        )
-
-        # Check if rotation needed
-        self._check_rotation()
-
-    def _check_rotation(self):
-        """Check if log rotation is needed"""
-        if self.log_file.exists():
-            size = self.log_file.stat().st_size
-            if size >= self.max_log_size:
-                self._rotate_logs()
-
-    def _rotate_logs(self):
-        """Rotate log files"""
-        # Rename existing backups
-        for i in range(self.max_backups - 1, 0, -1):
-            old_file = self.log_dir / f"{self.log_file.name}.{i}"
-            new_file = self.log_dir / f"{self.log_file.name}.{i+1}"
-
-            if old_file.exists():
-                if new_file.exists():
-                    new_file.unlink()
-                old_file.rename(new_file)
-
-        # Rename current log to .1
-        if self.log_file.exists():
-            backup_file = self.log_dir / f"{self.log_file.name}.1"
-            if backup_file.exists():
-                backup_file.unlink()
-            self.log_file.rename(backup_file)
-
-        self.log_event(
-            AuditEventType.SYSTEM_START,
-            AuditSeverity.INFO,
-            "Log rotation completed",
-            {'backups_kept': self.max_backups}
         )
 
     def log_encryption(self, success: bool, file_size: int, details: Dict[str, Any]):
@@ -480,8 +652,11 @@ class AuditLogger:
         try:
             with open(self.log_file, 'r') as f:
                 for line in f:
+                    decoded = self._decrypt_log_line(line)
+                    if not decoded:
+                        continue
                     try:
-                        event = json.loads(line)
+                        event = json.loads(decoded)
 
                         # Apply filters
                         if start_time and event['timestamp'] < start_time:

@@ -11,12 +11,16 @@ Security Notes:
 - Database file has restrictive permissions (600)
 """
 
+import atexit
 import sqlite3
 import os
 import logging
 import json
 import hashlib
-from typing import Optional, Dict, Any, List, Tuple
+import queue
+import threading
+from contextlib import contextmanager
+from typing import Optional, Dict, Any, List, Tuple, Iterator, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,11 +81,130 @@ class AuthAttempt:
     attempt_id: int
     user_id: Optional[int]
     email_hash: Optional[bytes]
+    normalized_email_hash: Optional[bytes]
     timestamp: datetime
     success: bool
     attempt_type: str  # 'pin', 'password', 'recovery'
     ip_address: Optional[str]
+    user_agent: Optional[str]
+    device_fingerprint: Optional[str]
+    attempt_key: Optional[bytes]
     failure_reason: Optional[str]
+
+
+class ConnectionPool:
+    """Thread-safe SQLite connection pool."""
+
+    def __init__(
+        self,
+        db_path: str,
+        max_size: int = 5,
+        *,
+        connect_kwargs: Optional[Dict[str, Any]] = None,
+        configure: Optional[Callable[[sqlite3.Connection], None]] = None,
+    ) -> None:
+        if max_size < 1:
+            raise ValueError("Connection pool size must be at least 1")
+
+        self.db_path = db_path
+        self.max_size = max_size
+        self._connect_kwargs = connect_kwargs or {}
+        self._configure = configure
+        self._pool: "queue.LifoQueue[sqlite3.Connection]" = queue.LifoQueue(max_size)
+        self._lock = threading.Lock()
+        self._created = 0
+        self._all_connections: set[sqlite3.Connection] = set()
+        self._closed = False
+
+    def _create_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, **self._connect_kwargs)
+        if self._configure is not None:
+            self._configure(conn)
+        return conn
+
+    def acquire(self) -> sqlite3.Connection:
+        if self._closed:
+            raise RuntimeError("Connection pool has been closed")
+
+        try:
+            return self._pool.get_nowait()
+        except queue.Empty:
+            with self._lock:
+                if self._created < self.max_size:
+                    conn = self._create_connection()
+                    self._created += 1
+                    self._all_connections.add(conn)
+                    return conn
+
+        # Pool is at capacity; block until a connection becomes available
+        conn = self._pool.get()
+        if self._closed:
+            raise RuntimeError("Connection pool has been closed")
+        return conn
+
+    def release(self, conn: sqlite3.Connection) -> None:
+        if self._closed:
+            self._finalize_connection(conn)
+            return
+
+        try:
+            self._pool.put_nowait(conn)
+        except queue.Full:
+            self._finalize_connection(conn)
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            connections = list(self._all_connections)
+            self._all_connections.clear()
+            self._created = 0
+
+        for conn in connections:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                logger.exception("Failed to close pooled connection")
+
+        # Drain any remaining references in the queue to avoid holding closed connections
+        while True:
+            try:
+                self._pool.get_nowait()
+            except queue.Empty:
+                break
+
+    def _finalize_connection(self, conn: sqlite3.Connection) -> None:
+        with self._lock:
+            if conn in self._all_connections:
+                self._all_connections.remove(conn)
+                self._created = len(self._all_connections)
+        try:
+            conn.close()
+        except sqlite3.Error:
+            logger.exception("Failed to close pooled connection during release")
+
+    @contextmanager
+    def connection(self) -> Iterator[sqlite3.Connection]:
+        conn = self.acquire()
+        try:
+            yield conn
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        finally:
+            self.release(conn)
+@dataclass
+class DeviceAttemptState:
+    """Aggregated device attempt metadata."""
+
+    attempt_key: bytes
+    attempt_count: int
+    first_attempt: datetime
+    last_attempt: datetime
+    captcha_required_until: Optional[datetime]
+    metadata: Dict[str, Any]
 
 
 class AuthDatabase:
@@ -97,6 +220,9 @@ class AuthDatabase:
 
     INSTANCE_SECRET_KEY = "instance_secret"
 
+    def __init__(self, db_path: Optional[str] = None, *, pool_size: int = 5):
+    _registered_cleanup_paths = set()
+
     def __init__(self, db_path: Optional[str] = None):
         """
         Initialize authentication database.
@@ -110,7 +236,26 @@ class AuthDatabase:
             db_path = os.path.join(config_dir, "users.db")
 
         self.db_path = db_path
+        self._db_path = Path(db_path)
         self.connection: Optional[sqlite3.Connection] = None
+
+        connect_kwargs = {
+            "detect_types": sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+            "check_same_thread": False,
+        }
+
+        def _configure_connection(conn: sqlite3.Connection) -> None:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+
+        self._pool = ConnectionPool(
+            self.db_path,
+            max_size=pool_size,
+            connect_kwargs=connect_kwargs,
+            configure=_configure_connection,
+        )
+
+        atexit.register(self.close)
 
         self._instance_guard = InstanceGuard(self.db_path)
 
@@ -123,6 +268,7 @@ class AuthDatabase:
         # Set restrictive file permissions
         self._set_secure_permissions()
         self._instance_guard.verify_environment(self)
+        self._register_shutdown_cleanup()
 
     @staticmethod
     def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
@@ -254,14 +400,29 @@ class AuthDatabase:
                     attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     email_hash BLOB,
+                    normalized_email_hash BLOB,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     success BOOLEAN NOT NULL,
                     attempt_type TEXT NOT NULL,
                     ip_address TEXT,
+                    user_agent TEXT,
+                    device_fingerprint TEXT,
+                    attempt_key BLOB,
                     failure_reason TEXT,
 
                     CHECK (success IN (0, 1)),
                     CHECK (attempt_type IN ('pin', 'password', 'recovery'))
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS device_attempts (
+                    attempt_key BLOB PRIMARY KEY,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    first_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    captcha_required_until TIMESTAMP,
+                    metadata TEXT
                 )
             """)
 
@@ -283,6 +444,8 @@ class AuthDatabase:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_user_id ON auth_attempts(user_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_timestamp ON auth_attempts(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_email_hash ON auth_attempts(email_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_normalized_hash ON auth_attempts(normalized_email_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_attempts_attempt_key ON auth_attempts(attempt_key)")
 
             self._bind_instance_secret(cursor)
 
@@ -376,8 +539,42 @@ class AuthDatabase:
                     )
                 """)
 
+            cursor.execute("PRAGMA table_info(auth_attempts)")
+            attempt_columns = {row[1] for row in cursor.fetchall()}
+
+            if "normalized_email_hash" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN normalized_email_hash BLOB")
+
+            if "user_agent" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN user_agent TEXT")
+
+            if "device_fingerprint" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN device_fingerprint TEXT")
+
+            if "attempt_key" not in attempt_columns:
+                cursor.execute("ALTER TABLE auth_attempts ADD COLUMN attempt_key BLOB")
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_attempts'")
+            if cursor.fetchone() is None:
+                cursor.execute("""
+                    CREATE TABLE device_attempts (
+                        attempt_key BLOB PRIMARY KEY,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        first_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_attempt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        captcha_required_until TIMESTAMP,
+                        metadata TEXT
+                    )
+                """)
+
             conn.commit()
 
+    @contextmanager
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
+        """Context manager that yields a pooled database connection."""
+
+        with self._pool.connection() as conn:
+            yield conn
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with proper settings"""
         conn = sqlite3.connect(
@@ -387,13 +584,72 @@ class AuthDatabase:
         )
         conn.row_factory = sqlite3.Row  # Allow dict-like access
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
+        conn.execute("PRAGMA journal_mode=TRUNCATE")
+        conn.execute("PRAGMA secure_delete=ON")
         return conn
 
     def close(self):
         """Close database connection"""
         if self.connection:
+            try:
+                self.connection.close()
+            except sqlite3.Error:
+                logger.exception("Failed to close legacy connection handle")
+            finally:
+                self.connection = None
+
+        if hasattr(self, "_pool"):
+            self._pool.close()
             self.connection.close()
             self.connection = None
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        """Remove residual SQLite journal and backup files."""
+        self._cleanup_residual_files_for_path(self._db_path.resolve())
+
+    def _register_shutdown_cleanup(self) -> None:
+        """Ensure residual files are purged during interpreter shutdown."""
+        resolved_path = self._db_path.resolve()
+        path_key = str(resolved_path)
+        if path_key in self._registered_cleanup_paths:
+            return
+        self._registered_cleanup_paths.add(path_key)
+        atexit.register(self._cleanup_residual_files_for_path, resolved_path)
+
+    @staticmethod
+    def _cleanup_residual_files_for_path(db_path: Path) -> None:
+        parent = db_path.parent
+        if not parent.exists():
+            return
+
+        residual_suffixes = ("-wal", "-shm")
+        backup_patterns = (
+            f"{db_path.name}.bak",
+            f"{db_path.name}.backup",
+            f"{db_path.stem}.bak",
+            f"{db_path.stem}.backup",
+        )
+
+        for suffix in residual_suffixes:
+            candidate = db_path.with_name(db_path.name + suffix)
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass
+
+        for pattern in backup_patterns:
+            for candidate in parent.glob(pattern):
+                if candidate == db_path:
+                    continue
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    pass
 
     # ==================== User Management ====================
 
@@ -848,7 +1104,12 @@ class AuthDatabase:
         success: bool,
         attempt_type: str,
         ip_address: Optional[str] = None,
-        failure_reason: Optional[str] = None
+        failure_reason: Optional[str] = None,
+        *,
+        normalized_email_hash: Optional[bytes] = None,
+        user_agent: Optional[str] = None,
+        device_fingerprint: Optional[str] = None,
+        attempt_key: Optional[bytes] = None,
     ) -> int:
         """
         Record authentication attempt.
@@ -868,9 +1129,20 @@ class AuthDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO auth_attempts
-                (user_id, email_hash, success, attempt_type, ip_address, failure_reason)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, email_hash, success, attempt_type, ip_address, failure_reason))
+                (user_id, email_hash, normalized_email_hash, success, attempt_type, ip_address, user_agent, device_fingerprint, attempt_key, failure_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                email_hash,
+                normalized_email_hash,
+                success,
+                attempt_type,
+                ip_address,
+                user_agent,
+                device_fingerprint,
+                attempt_key,
+                failure_reason,
+            ))
 
             attempt_id = cursor.lastrowid
             conn.commit()
@@ -916,10 +1188,14 @@ class AuthDatabase:
                     attempt_id=row['attempt_id'],
                     user_id=row['user_id'],
                     email_hash=row['email_hash'],
+                    normalized_email_hash=row['normalized_email_hash'],
                     timestamp=self._parse_datetime(row['timestamp']),
                     success=bool(row['success']),
                     attempt_type=row['attempt_type'],
                     ip_address=row['ip_address'],
+                    user_agent=row['user_agent'],
+                    device_fingerprint=row['device_fingerprint'],
+                    attempt_key=row['attempt_key'],
                     failure_reason=row['failure_reason']
                 ))
 
@@ -984,6 +1260,8 @@ class AuthDatabase:
         self,
         since: datetime,
         email_hash: Optional[bytes] = None,
+        attempt_key: Optional[bytes] = None,
+        normalized_email_hash: Optional[bytes] = None,
     ) -> List[AuthAttempt]:
         """Fetch failed authentication attempts within the provided window."""
 
@@ -998,6 +1276,14 @@ class AuthDatabase:
                 query.append("AND email_hash = ?")
                 params.append(email_hash)
 
+            if normalized_email_hash is not None:
+                query.append("AND normalized_email_hash = ?")
+                params.append(normalized_email_hash)
+
+            if attempt_key is not None:
+                query.append("AND attempt_key = ?")
+                params.append(attempt_key)
+
             query.append("ORDER BY timestamp ASC")
             cursor.execute(" ".join(query), params)
 
@@ -1010,15 +1296,128 @@ class AuthDatabase:
                         attempt_id=row['attempt_id'],
                         user_id=row['user_id'],
                         email_hash=row['email_hash'],
+                        normalized_email_hash=row['normalized_email_hash'],
                         timestamp=self._parse_datetime(row['timestamp']),
                         success=bool(row['success']),
                         attempt_type=row['attempt_type'],
                         ip_address=row['ip_address'],
+                        user_agent=row['user_agent'],
+                        device_fingerprint=row['device_fingerprint'],
+                        attempt_key=row['attempt_key'],
                         failure_reason=row['failure_reason'],
                     )
                 )
 
             return attempts
+
+    def update_device_attempt_counter(
+        self,
+        attempt_key: bytes,
+        *,
+        success: bool,
+        metadata: Optional[Dict[str, Any]] = None,
+        captcha_threshold: int = 0,
+        captcha_cooldown_seconds: int = 0,
+    ) -> DeviceAttemptState:
+        """Update per-device counters and persist captcha requirements."""
+
+        metadata_dict = metadata or {}
+        now = datetime.now()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM device_attempts WHERE attempt_key = ?",
+                (attempt_key,),
+            )
+            row = cursor.fetchone()
+
+            if success:
+                cursor.execute(
+                    "DELETE FROM device_attempts WHERE attempt_key = ?",
+                    (attempt_key,),
+                )
+                conn.commit()
+                return DeviceAttemptState(
+                    attempt_key=attempt_key,
+                    attempt_count=0,
+                    first_attempt=now,
+                    last_attempt=now,
+                    captcha_required_until=None,
+                    metadata=metadata_dict,
+                )
+
+            attempt_count = 0
+            first_attempt = now
+            captcha_required_until: Optional[datetime] = None
+            existing_metadata: Dict[str, Any] = {}
+
+            if row:
+                attempt_count = row['attempt_count']
+                first_attempt = self._parse_datetime(row['first_attempt']) or now
+                captcha_required_until = self._parse_datetime(row['captcha_required_until'])
+                existing_metadata = self._deserialize_metadata(row['metadata'])
+
+            attempt_count += 1
+            if captcha_threshold > 0 and attempt_count >= captcha_threshold:
+                captcha_required_until = now + timedelta(seconds=captcha_cooldown_seconds)
+
+            combined_metadata = existing_metadata.copy()
+            combined_metadata.update(metadata_dict)
+
+            cursor.execute(
+                """
+                INSERT INTO device_attempts
+                (attempt_key, attempt_count, first_attempt, last_attempt, captcha_required_until, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(attempt_key) DO UPDATE SET
+                    attempt_count=excluded.attempt_count,
+                    last_attempt=excluded.last_attempt,
+                    captcha_required_until=excluded.captcha_required_until,
+                    metadata=excluded.metadata
+                """,
+                (
+                    attempt_key,
+                    attempt_count,
+                    self._format_datetime(first_attempt),
+                    self._format_datetime(now),
+                    self._format_datetime(captcha_required_until) if captcha_required_until else None,
+                    self._serialize_metadata(combined_metadata),
+                ),
+            )
+            conn.commit()
+
+            return DeviceAttemptState(
+                attempt_key=attempt_key,
+                attempt_count=attempt_count,
+                first_attempt=first_attempt,
+                last_attempt=now,
+                captcha_required_until=captcha_required_until,
+                metadata=combined_metadata,
+            )
+
+    def get_device_attempt_state(self, attempt_key: bytes) -> Optional[DeviceAttemptState]:
+        """Return the persisted per-device attempt state."""
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM device_attempts WHERE attempt_key = ?",
+                (attempt_key,),
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return DeviceAttemptState(
+                attempt_key=row['attempt_key'],
+                attempt_count=row['attempt_count'],
+                first_attempt=self._parse_datetime(row['first_attempt']) or datetime.now(),
+                last_attempt=self._parse_datetime(row['last_attempt']) or datetime.now(),
+                captcha_required_until=self._parse_datetime(row['captcha_required_until']),
+                metadata=self._deserialize_metadata(row['metadata']),
+            )
 
     def _bind_instance_secret(self, cursor: sqlite3.Cursor) -> None:
         """Ensure the authentication database is bound to the guard secret."""
