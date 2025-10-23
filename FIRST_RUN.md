@@ -46,6 +46,8 @@ The following files should **never** be committed to git or copied between insta
 
 These are security-sensitive files unique to each installation.
 
+Once the environment is stable, walk through the [Security Configuration Baseline](SECURITY_CONFIG.md) and sign off the deployment steps in the [Deployment Runbook](DEPLOYMENT_RUNBOOK.md) before promoting the instance beyond testing.
+
 ## Development/Testing
 
 If you're a developer and need to frequently reset the system:

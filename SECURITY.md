@@ -11,6 +11,34 @@ If you discover a security vulnerability in SecureVault, please report it respon
 
 We take security seriously and will respond to valid reports promptly.
 
+
+## Dependency Security Monitoring
+
+We actively monitor third-party dependencies to catch known vulnerabilities quickly:
+
+- **Automated Audits**: GitHub Actions runs [`pip-audit`](https://github.com/pypa/pip-audit) on every push, pull request, and weekly schedule against `requirements.txt` to surface advisories early.
+- **Automated Updates**: Dependabot opens weekly pull requests for Python dependency updates defined in `requirements.txt`, ensuring we stay current with upstream fixes.
+
+### Advisory Triage Procedure
+
+When an automated audit or Dependabot pull request reports a vulnerability:
+
+1. **Confirm the Finding**
+   - Review the advisory ID and affected package version.
+   - Validate that the vulnerable dependency is bundled or used at runtime.
+2. **Assess Impact**
+   - Determine whether the vulnerability affects critical security properties (confidentiality, integrity, availability).
+   - Evaluate exploitability in SecureVault's deployment context and document assumptions.
+3. **Prioritize Response**
+   - Classify severity (Critical, High, Medium, Low) using CVSS guidance.
+   - Assign an owner and target timeline; Critical issues are addressed immediately.
+4. **Mitigate and Test**
+   - Apply patched versions via Dependabot PR or manual update.
+   - Run the full automated test suite and relevant security checks before merging.
+5. **Communicate and Track**
+   - Record the resolution in the advisory tracking log or issue.
+   - Coordinate disclosure timelines with reporters when applicable and update release notes.
+
 ## Supported Versions
 
 Currently, SecureVault is in active development. Security updates will be provided for:
@@ -179,6 +207,16 @@ The security of the OTP layer depends entirely on:
    - Minimize attack surface
    - Use secure communication channels
    - Follow principle of least privilege
+
+### For Operators
+
+1. **Configuration Baseline**
+   - Apply the permissions and environment settings defined in [SECURITY_CONFIG.md](SECURITY_CONFIG.md).
+   - Retain signed copies of the hardening checklist for each deployment.
+
+2. **Runbook Compliance**
+   - Execute deployments through the [Deployment Runbook](DEPLOYMENT_RUNBOOK.md).
+   - Require operators to acknowledge the hardening checklist before promoting changes to production.
 
 ### For Developers
 
