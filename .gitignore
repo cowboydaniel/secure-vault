@@ -46,6 +46,7 @@ htmlcov/
 # Logs
 *.log
 !logs/deployment_validation_2024-06-15.log
+!logs/release_artifacts_2025-10-23.log
 
 # Temporary files
 *.tmp

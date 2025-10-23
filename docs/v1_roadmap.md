@@ -86,7 +86,11 @@ completed by A. Rivera and S. Nakamura on 2024-07-07, and the release metadata i
 reflected in `docs/README.md`.
 
 ### 3.3 Artifact Production
-- [ ] Run `make release-artifacts` via the release pipeline script once prerequisites are complete.
+- [x] Run `make release-artifacts` via the release pipeline script once prerequisites are complete.
+
+_Status:_ Completed on 2025-10-23 by executing `./release_pipeline.sh`, which regenerated the CycloneDX SBOM at
+`release_artifacts/sbom.xml` and archived the run output (including unpinned dependency warnings) in
+`logs/release_artifacts_2025-10-23.log` for release verification.
 
 ## 4. Status Tracking
 Use this checklist as a living document. Update completion boxes and add links to tickets, PRs, and validation evidence as work progresses towards the Linux v1 release.

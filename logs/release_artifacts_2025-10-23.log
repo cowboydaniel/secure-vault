@@ -1,0 +1,46 @@
+Running release artifact generation...
+mkdir -p build
+cyclonedx-py requirements requirements.txt --of XML -o build/sbom.xml
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L5' id=140449580451920>, group=None, name=cryptography, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L6' id=140449580487888>, group=None, name=pycryptodome, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L7' id=140449580496272>, group=None, name=PyNaCl, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L8' id=140449580521040>, group=None, name=argon2-cffi, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L11' id=140449580529296>, group=None, name=numpy, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L12' id=140449580537616>, group=None, name=gmpy2, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L13' id=140449580545872>, group=None, name=sympy, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L16' id=140449580570704>, group=None, name=numba, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L17' id=140449580578960>, group=None, name=Cython, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L20' id=140449580586576>, group=None, name=PyQt6, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L23' id=140449580595472>, group=None, name=psutil, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L24' id=140449580603792>, group=None, name=watchdog, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L25' id=140449580612048>, group=None, name=keyring, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L32' id=140449580620368>, group=None, name=pytest, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L33' id=140449580628624>, group=None, name=pytest-cov, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L34' id=140449580652624>, group=None, name=pytest-benchmark, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L35' id=140449580661520>, group=None, name=hypothesis, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L38' id=140449580702608>, group=None, name=py-spy, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L39' id=140449580710864>, group=None, name=memory-profiler, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L42' id=140449580719184>, group=None, name=python-magic, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L43' id=140449580727504>, group=None, name=pillow, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L44' id=140449580768592>, group=None, name=python-docx, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L47' id=140449580776848>, group=None, name=lz4, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L48' id=140449580785168>, group=None, name=zstandard, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L51' id=140449580793424>, group=None, name=structlog, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L52' id=140449580801744>, group=None, name=rich, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L55' id=140449580810000>, group=None, name=cyclonedx-bom, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L56' id=140449580834704>, group=None, name=black, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L57' id=140449580842960>, group=None, name=isort, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L58' id=140449580867664>, group=None, name=mypy, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L59' id=140449582365456>, group=None, name=flake8, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L62' id=140449580874768>, group=None, name=sphinx, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L63' id=140449580914832>, group=None, name=sphinx-rtd-theme, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L66' id=140449580922448>, group=None, name=pyserial, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L67' id=140449580930768>, group=None, name=RPi.GPIO, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L70' id=140449580939024>, group=None, name=sqlalchemy, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L73' id=140449580980112>, group=None, name=paramiko, version=None, type=ComponentType.LIBRARY>
+WARNING  | CDX.RequirementsBB > component has no pinned version: <Component bom-ref=<BomRef 'requirements-L74' id=140449580988368>, group=None, name=requests, version=None, type=ComponentType.LIBRARY>
+mkdir -p release_artifacts
+cp build/sbom.xml release_artifacts/sbom.xml
+echo "Stored SBOM at release_artifacts/sbom.xml"
+Stored SBOM at release_artifacts/sbom.xml
+Release artifacts are available under /workspace/secure-vault/release_artifacts

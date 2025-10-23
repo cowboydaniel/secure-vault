@@ -7,7 +7,7 @@ sbom: $(SBOM_FILE)
 
 $(SBOM_FILE): requirements.txt
 	mkdir -p $(SBOM_DIR)
-	cyclonedx-py --requirements requirements.txt --format xml --output $(SBOM_FILE)
+	cyclonedx-py requirements requirements.txt --of XML -o $(SBOM_FILE)
 
 release-artifacts: sbom
 	mkdir -p release_artifacts
