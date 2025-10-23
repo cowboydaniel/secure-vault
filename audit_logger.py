@@ -517,6 +517,7 @@ class AuditLogger:
         raise RuntimeError(
             f"Unprotected audit material detected in {path}; manual recovery required"
         )
+        return raw_data, False
 
     def _load_encryption_material(self) -> (bytes, bytes):
         """Load or create encryption material for log storage."""
@@ -525,6 +526,7 @@ class AuditLogger:
         if key_file.exists():
             self._existing_key_material = True
             data, _ = self._load_wrapped_payload(
+            data, wrapped = self._load_wrapped_payload(
                 key_file,
                 salt=self.KEY_WRAP_SALT,
                 info=self.KEY_WRAP_INFO,
@@ -540,6 +542,16 @@ class AuditLogger:
             raise RuntimeError(
                 "Audit key material missing while audit history exists; tampering suspected"
             )
+
+            if not wrapped:
+                self._store_wrapped_payload(
+                    data,
+                    key_file,
+                    salt=self.KEY_WRAP_SALT,
+                    info=self.KEY_WRAP_INFO,
+                    version=self.KEY_FILE_VERSION,
+                )
+            return data[:64], data[64:]
 
         key = os.urandom(64)
         iv = os.urandom(64)
@@ -563,6 +575,9 @@ class AuditLogger:
             return b'\x00' * 32
 
         data, _ = self._load_wrapped_payload(
+            return b'\x00' * 32
+
+        data, wrapped = self._load_wrapped_payload(
             chain_file,
             salt=self.CHAIN_WRAP_SALT,
             info=self.CHAIN_WRAP_INFO,
@@ -571,6 +586,14 @@ class AuditLogger:
         )
         if len(data) != 32:
             raise ValueError("Invalid audit chain state length")
+        if not wrapped:
+            self._store_wrapped_payload(
+                data,
+                chain_file,
+                salt=self.CHAIN_WRAP_SALT,
+                info=self.CHAIN_WRAP_INFO,
+                version=self.CHAIN_FILE_VERSION,
+            )
         return data
 
     def _persist_chain_state(self, state: bytes) -> None:

@@ -226,6 +226,7 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
                 }):
+                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
             logger = AuditLogger(
@@ -282,6 +283,7 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
                 }):
+                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
             logger = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
@@ -365,6 +367,14 @@ class TestAuditLoggerSanitization(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
+                reopened.log_event(
+                    AuditEventType.SYSTEM_START,
+                    AuditSeverity.INFO,
+                    "restarted",
+                    {},
+                )
+            finally:
+                reopened.close()
 
 
 class TestErrorHandlingSanitization(unittest.TestCase):

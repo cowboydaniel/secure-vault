@@ -108,6 +108,7 @@ class TestFileBasedHSMSecretWrapping(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-hsm-wrap",
                 }):
+                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             keys_dir = Path(tmpdir) / "keys"
             metadata_file = Path(tmpdir) / "metadata.json"
             auth_db_path = Path(tmpdir) / "users.db"
