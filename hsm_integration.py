@@ -6,6 +6,7 @@ It supports multiple HSM backends and provides a unified interface for cryptogra
 """
 
 import base64
+import binascii
 import logging
 import time
 from typing import Optional, Union, Tuple, List, Dict, Any
@@ -23,6 +24,7 @@ from pathlib import Path
 from crypto_utils import derive_key_hkdf_sha3_512, secure_compare, secure_wipe
 from secure_memory import SecureBytes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from instance_guard import InstanceGuard, InstanceStateError, TamperDetectedError
 
 try:
     import pkcs11
@@ -204,14 +206,80 @@ class FileBasedHSMSession(HSMSession):
 
     DERIVATION_SALT = hashlib.sha256(b"FileBasedHSMSession::storage").digest()
     DERIVATION_INFO = b"file-based-hsm-storage-v1"
+    LOCAL_SECRET_FILENAME = ".file_hsm_master_secret"
+    LOCAL_SECRET_VERSION = 2
+    LOCAL_SECRET_SALT = hashlib.sha256(b"FileBasedHSMSession::local_secret").digest()
+    LOCAL_SECRET_INFO = b"file-hsm-master-secret"
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.keys_dir = Path(config.get('keys_dir', 'hsm_keys'))
         self.keys_dir.mkdir(exist_ok=True, mode=0o700)
         self.keys: Dict[str, Dict[str, Any]] = {}
+        self._guard_secret: Optional[bytes] = None
         self._storage_key = self._initialize_storage_key(config)
         self._load_keys()
+
+    def _resolve_guard_secret(self) -> Optional[bytes]:
+        """Retrieve the instance-guard secret for wrapping local material."""
+
+        if self._guard_secret is not None:
+            return self._guard_secret
+
+        guard_obj = self.config.get('instance_guard')
+        if guard_obj is not None:
+            try:
+                secret = guard_obj.get_secret()
+                self._guard_secret = bytes(secret)
+                return self._guard_secret
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error("Failed to use provided instance guard: %s", exc)
+                return None
+
+        db_path = self.config.get('auth_db_path')
+        if db_path is None:
+            default_dir = os.path.expanduser("~/.secure_vault")
+            os.makedirs(default_dir, mode=0o700, exist_ok=True)
+            db_path = os.path.join(default_dir, "users.db")
+
+        try:
+            guard = InstanceGuard(db_path)
+            secret = guard.get_secret()
+            self._guard_secret = bytes(secret)
+            self.config['instance_guard'] = guard
+            return self._guard_secret
+        except (InstanceStateError, TamperDetectedError) as exc:
+            logger.error("Instance guard unavailable for file-based HSM: %s", exc)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to initialize instance guard: %s", exc)
+        return None
+
+    def _derive_guard_key(self) -> bytes:
+        guard_secret = self._resolve_guard_secret()
+        if guard_secret is None:
+            raise HSMError(
+                "File-based HSM requires an instance guard or supplied master secret"
+            )
+        return derive_key_hkdf_sha3_512(
+            guard_secret,
+            length=32,
+            salt=self.LOCAL_SECRET_SALT,
+            info=self.LOCAL_SECRET_INFO,
+        )
+
+    def _store_local_secret(self, secret: bytes, wrap_key: bytes, secret_path: Path) -> None:
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(wrap_key)
+        ciphertext = aesgcm.encrypt(nonce, secret, self.LOCAL_SECRET_INFO)
+        payload = {
+            'version': self.LOCAL_SECRET_VERSION,
+            'nonce': base64.b64encode(nonce).decode('ascii'),
+            'ciphertext': base64.b64encode(ciphertext).decode('ascii'),
+        }
+        tmp_path = secret_path.with_suffix('.tmp')
+        tmp_path.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp_path, secret_path)
+        os.chmod(secret_path, 0o600)
 
     def _initialize_storage_key(self, config: Dict[str, Any]) -> bytearray:
         """Derive the storage encryption key from the master secret."""
@@ -250,23 +318,47 @@ class FileBasedHSMSession(HSMSession):
     def _load_or_create_local_secret(self) -> bytes:
         """Fallback secret storage when no master secret is supplied."""
 
-        secret_path = self.keys_dir / '.file_hsm_master_secret'
+        wrap_key = self._derive_guard_key()
+        secret_path = self.keys_dir / self.LOCAL_SECRET_FILENAME
+
         if secret_path.exists():
             try:
-                with open(secret_path, 'rb') as secret_file:
-                    data = secret_file.read()
-                return base64.b64decode(data)
-            except (OSError, base64.binascii.Error) as exc:
-                logger.warning("Failed to load local master secret: %s", exc)
+                raw_data = secret_path.read_bytes()
+            except OSError as exc:
+                logger.error("Unable to read local HSM secret: %s", exc)
+                raise HSMError("Failed to load file-based HSM secret") from exc
+
+            try:
+                payload = json.loads(raw_data.decode('utf-8'))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                payload = None
+
+            if isinstance(payload, dict) and payload.get('version') == self.LOCAL_SECRET_VERSION:
+                try:
+                    nonce = base64.b64decode(payload['nonce'])
+                    ciphertext = base64.b64decode(payload['ciphertext'])
+                    aesgcm = AESGCM(wrap_key)
+                    secret = aesgcm.decrypt(nonce, ciphertext, self.LOCAL_SECRET_INFO)
+                    if len(secret) != 64:
+                        raise ValueError("Unexpected secret length")
+                    return secret
+                except (KeyError, ValueError, binascii.Error) as exc:
+                    logger.error("Invalid local HSM secret payload: %s", exc)
+                    raise HSMError("Local HSM secret is corrupted") from exc
+
+            # Legacy plaintext storage - migrate securely
+            try:
+                legacy_secret = base64.b64decode(raw_data)
+                if len(legacy_secret) != 64:
+                    raise ValueError("Unexpected secret length")
+                self._store_local_secret(legacy_secret, wrap_key, secret_path)
+                return legacy_secret
+            except (binascii.Error, ValueError) as exc:
+                logger.error("Unable to decode legacy HSM secret: %s", exc)
+                raise HSMError("Local HSM secret is unreadable") from exc
 
         secret = os.urandom(64)
-        try:
-            with open(secret_path, 'wb') as secret_file:
-                secret_file.write(base64.b64encode(secret))
-            os.chmod(secret_path, 0o600)
-        except OSError as exc:
-            logger.warning("Failed to persist local master secret: %s", exc)
-
+        self._store_local_secret(secret, wrap_key, secret_path)
         return secret
 
     @staticmethod
