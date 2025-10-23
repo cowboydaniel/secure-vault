@@ -9,9 +9,31 @@ import atexit
 import sqlite3
 import json
 import time
+import os
+from enum import Enum
+from typing import Dict, Any, Optional, List, Tuple, Union
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from dataclasses import dataclass
+
+
+class PermissionLevel(Enum):
+    """Supported permission levels for file access control."""
+
+    READ = "read"
+    WRITE = "write"
+    MANAGE = "manage"
+
+    @classmethod
+    def from_value(cls, value: Union["PermissionLevel", str]) -> "PermissionLevel":
+        """Normalize an incoming permission value."""
+
+        if isinstance(value, PermissionLevel):
+            return value
+        try:
+            return cls(value)
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Unknown permission level: {value}") from exc
 
 
 @dataclass
@@ -32,6 +54,18 @@ class FileMetadata:
     shares_threshold: Optional[int] = None
     tags: Optional[List[str]] = None
     custom_metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class FilePermission:
+    """Represents a granted permission for a user on a file."""
+
+    file_id: str
+    user_id: int
+    permission: PermissionLevel
+    granted_by: Optional[int]
+    granted_at: float
+    revoked_at: Optional[float] = None
 
 
 class MetadataManager:
@@ -65,6 +99,9 @@ class MetadataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
 
+        # Ensure foreign keys are enforced for integrity
+        cursor.execute("PRAGMA foreign_keys = ON")
+
         # Main metadata table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS file_metadata (
@@ -86,6 +123,31 @@ class MetadataManager:
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             )
+        ''')
+
+        # Access control table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS file_permissions (
+                file_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                permission TEXT NOT NULL,
+                granted_by INTEGER,
+                granted_at REAL NOT NULL,
+                revoked_at REAL,
+                PRIMARY KEY (file_id, user_id, permission),
+                FOREIGN KEY (file_id) REFERENCES file_metadata(file_id)
+                    ON DELETE CASCADE
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_permissions_user
+            ON file_permissions(user_id)
+        ''')
+
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_permissions_file
+            ON file_permissions(file_id)
         ''')
 
         # Index for faster queries
@@ -119,6 +181,147 @@ class MetadataManager:
         conn.commit()
         conn.close()
 
+    def _permission_to_str(self, permission: Union[PermissionLevel, str]) -> str:
+        """Normalize permission value to its string representation."""
+
+        return PermissionLevel.from_value(permission).value
+
+    def grant_permission(
+        self,
+        file_id: str,
+        user_id: int,
+        permission: Union[PermissionLevel, str],
+        granted_by: Optional[int] = None
+    ) -> bool:
+        """Grant a permission to a user for a file."""
+
+        normalized_permission = self._permission_to_str(permission)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            current_time = time.time()
+            cursor.execute('''
+                INSERT INTO file_permissions (
+                    file_id, user_id, permission, granted_by, granted_at, revoked_at
+                ) VALUES (?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(file_id, user_id, permission) DO UPDATE SET
+                    granted_by=excluded.granted_by,
+                    granted_at=excluded.granted_at,
+                    revoked_at=NULL
+            ''', (file_id, user_id, normalized_permission, granted_by, current_time))
+            conn.commit()
+            return True
+        except sqlite3.Error as exc:
+            print(f"Database error granting permission: {exc}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def revoke_permission(
+        self,
+        file_id: str,
+        user_id: int,
+        permission: Optional[Union[PermissionLevel, str]] = None
+    ) -> bool:
+        """Revoke a previously granted permission."""
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            params: List[Any] = [time.time(), file_id, user_id]
+            query = '''
+                UPDATE file_permissions
+                SET revoked_at = ?
+                WHERE file_id = ? AND user_id = ? AND revoked_at IS NULL
+            '''
+            if permission is not None:
+                query += " AND permission = ?"
+                params.append(self._permission_to_str(permission))
+
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+    def has_permission(
+        self,
+        file_id: str,
+        user_id: int,
+        permission: Union[PermissionLevel, str]
+    ) -> bool:
+        """Check if the user currently has the specified permission."""
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute('''
+                SELECT 1 FROM file_permissions
+                WHERE file_id = ? AND user_id = ? AND permission = ? AND revoked_at IS NULL
+            ''', (file_id, user_id, self._permission_to_str(permission)))
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
+    def list_permissions(self, file_id: str) -> List[FilePermission]:
+        """List all active permissions for a file."""
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute('''
+                SELECT file_id, user_id, permission, granted_by, granted_at, revoked_at
+                FROM file_permissions
+                WHERE file_id = ? AND revoked_at IS NULL
+            ''', (file_id,))
+
+            rows = cursor.fetchall()
+            return [
+                FilePermission(
+                    file_id=row[0],
+                    user_id=row[1],
+                    permission=PermissionLevel(row[2]),
+                    granted_by=row[3],
+                    granted_at=row[4],
+                    revoked_at=row[5]
+                )
+                for row in rows
+            ]
+        finally:
+            conn.close()
+
+    def list_user_permissions(self, user_id: int) -> List[FilePermission]:
+        """List all active permissions for a user."""
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute('''
+                SELECT file_id, user_id, permission, granted_by, granted_at, revoked_at
+                FROM file_permissions
+                WHERE user_id = ? AND revoked_at IS NULL
+            ''', (user_id,))
+
+            rows = cursor.fetchall()
+            return [
+                FilePermission(
+                    file_id=row[0],
+                    user_id=row[1],
+                    permission=PermissionLevel(row[2]),
+                    granted_by=row[3],
+                    granted_at=row[4],
+                    revoked_at=row[5]
+                )
+                for row in rows
+            ]
+        finally:
+            conn.close()
     def _register_shutdown_cleanup(self) -> None:
         """Register cleanup handler for residual database artifacts."""
         resolved_path = self.db_path.resolve()

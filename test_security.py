@@ -16,12 +16,17 @@ import os
 import shutil
 import tempfile
 import time
+import tempfile
 import unittest
 from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
 
+from custom_cipher import Cipher512
+from crypto_utils import secure_random_bytes
+from metadata_manager import MetadataManager, FileMetadata, PermissionLevel
+from access_control import AccessControl, PermissionDeniedError
 from config import StorageConfig
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
@@ -196,6 +201,34 @@ class TestCustomCipherCornerCases(unittest.TestCase):
                 self.assertNotEqual(blocks[i], blocks[j])
 
 
+class TestAccessControlIntegration(unittest.TestCase):
+    """Integration tests for the access control service."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "metadata.db")
+        self.metadata_manager = MetadataManager(db_path=self.db_path)
+        self.access_control = AccessControl(self.metadata_manager)
+
+        self.owner_id = 1
+        self.other_user_id = 2
+        self.file_id = "test-file"
+
+        metadata = FileMetadata(
+            file_id=self.file_id,
+            original_name="document.txt",
+            original_size=128,
+            encrypted_size=256,
+            encryption_timestamp=time.time(),
+            encryption_algorithm="AES-256",
+            key_id="key-1",
+            iv=b"0" * 16,
+            integrity_hash="hash",
+            compression_used=False,
+        )
+
+        self.metadata_manager.add_file_metadata(metadata)
+        self.access_control.register_owner(self.file_id, self.owner_id)
 class TestPINManagerTiming(unittest.TestCase):
     """Timing tests to ensure PIN-based decryption remains constant time."""
 
@@ -262,6 +295,41 @@ class TestStoragePathValidation(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def test_owner_has_full_control(self):
+        for permission in PermissionLevel:
+            self.assertTrue(
+                self.access_control.has_access(self.owner_id, self.file_id, permission)
+            )
+
+    def test_unauthorized_user_denied(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.require_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+    def test_grant_and_revoke_flow(self):
+        with self.assertRaises(PermissionDeniedError):
+            self.access_control.grant_access(
+                self.other_user_id, self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+
+        self.access_control.grant_access(
+            self.owner_id, self.other_user_id, self.file_id, PermissionLevel.READ
+        )
+        self.assertTrue(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
+
+        self.access_control.revoke_access(
+            self.owner_id, self.other_user_id, self.file_id, [PermissionLevel.READ]
+        )
+        self.assertFalse(
+            self.access_control.has_access(
+                self.other_user_id, self.file_id, PermissionLevel.READ
+            )
+        )
     def test_allows_nested_directory(self):
         """Nested directories within the allowlist should be accepted."""
         nested = self.base_path / "nested" / "vault"
