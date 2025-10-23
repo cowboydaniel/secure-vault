@@ -88,7 +88,7 @@ class CLIAuthenticator:
             password = self._prompt_secret("Create password: ")
             confirm_password = self._prompt_secret("Confirm password: ")
 
-            pin = self._prompt_secret("Choose 6-8 digit PIN: ")
+            pin = self._prompt_secret("Choose a PIN (min 8 chars, letters and digits allowed): ")
             confirm_pin = self._prompt_secret("Confirm PIN: ")
 
             try:
