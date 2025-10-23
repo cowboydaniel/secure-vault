@@ -10,6 +10,8 @@ import os
 import time
 import threading
 import struct
+import hashlib
+from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Union
 from dataclasses import dataclass
 from enum import Enum
@@ -31,6 +33,7 @@ class EntropySourceType(Enum):
     MOUSE_MOVEMENT = "mouse_movement"  # Mouse movement entropy
     KEYBOARD_TIMING = "keyboard_timing" # Keystroke timing
     MIXED_SOURCES = "mixed_sources"    # Combined entropy
+    INTERRUPT_JITTER = "interrupt_jitter"  # Interrupt handler timing
 
 @dataclass
 class EntropySource:
@@ -44,6 +47,7 @@ class EntropySource:
     last_test_time: float
     total_bytes_read: int = 0
     failure_count: int = 0
+    degraded: bool = False
 
 class HardwareRNGManager:
     """
@@ -57,12 +61,14 @@ class HardwareRNGManager:
         self.entropy_sources: List[EntropySource] = []
         self.primary_source: Optional[EntropySource] = None
         self.backup_sources: List[EntropySource] = []
-        
+
         # Thread safety
         self._lock = threading.RLock()
-        
+
         # Quality monitoring
         self._quality_history: Dict[str, List[float]] = {}
+        self._entropy_rate_history: Dict[str, List[float]] = {}
+        self._degraded_sources: Dict[str, float] = {}
         self._monitoring_active = False
         self._monitor_thread: Optional[threading.Thread] = None
         
@@ -131,7 +137,7 @@ class HardwareRNGManager:
             last_test_time=time.time()
         )
         self.entropy_sources.append(urandom_source)
-        
+
         # CPU thermal noise (if available)
         if self._can_read_cpu_thermal():
             thermal_source = EntropySource(
@@ -144,7 +150,46 @@ class HardwareRNGManager:
                 last_test_time=0.0
             )
             self.entropy_sources.append(thermal_source)
-    
+
+        # Interrupt statistics if available
+        if Path('/proc/interrupts').exists():
+            interrupt_source = EntropySource(
+                name="Interrupt Jitter",
+                source_type=EntropySourceType.INTERRUPT_JITTER,
+                device_path='/proc/interrupts',
+                available=True,
+                quality_score=0.0,
+                read_speed_bps=5000,
+                last_test_time=0.0,
+            )
+            self.entropy_sources.append(interrupt_source)
+
+        # Disk activity counters
+        if Path('/proc/diskstats').exists():
+            disk_source = EntropySource(
+                name="Disk Activity",
+                source_type=EntropySourceType.DISK_SEEK,
+                device_path='/proc/diskstats',
+                available=True,
+                quality_score=0.0,
+                read_speed_bps=8000,
+                last_test_time=0.0,
+            )
+            self.entropy_sources.append(disk_source)
+
+        # Network timing data
+        if Path('/proc/net/dev').exists():
+            network_source = EntropySource(
+                name="Network Counters",
+                source_type=EntropySourceType.NETWORK_TIMING,
+                device_path='/proc/net/dev',
+                available=True,
+                quality_score=0.0,
+                read_speed_bps=7000,
+                last_test_time=0.0,
+            )
+            self.entropy_sources.append(network_source)
+
     def _can_read_cpu_thermal(self) -> bool:
         """Check if CPU thermal sensors are accessible"""
         thermal_paths = [
@@ -180,25 +225,28 @@ class HardwareRNGManager:
             
             if len(test_data) > 0:
                 source.read_speed_bps = int(len(test_data) / max(read_time, 0.001))
-                
+
                 # Test entropy quality
                 is_valid, metrics = validate_entropy_quality(test_data)
                 entropy_score = metrics.get('entropy_per_byte', 0.0)
-                
+                entropy_rate_bits = entropy_score * 8 * source.read_speed_bps
+
                 # Calculate quality score (0-10)
                 quality_score = min(10.0, entropy_score * 1.25)  # Scale 8.0 entropy to 10.0 quality
-                
+
                 # Bonus points for hardware sources
                 if source.source_type == EntropySourceType.HARDWARE_RNG:
                     quality_score += 1.0
-                
+
                 source.quality_score = min(10.0, quality_score)
                 source.last_test_time = time.time()
                 source.available = True
-                
+                self._record_quality_metrics(source.name, entropy_score, entropy_rate_bits)
+                self._detect_degradation(source)
+
                 logger.info(f"Source '{source.name}': Quality={source.quality_score:.1f}/10, "
                            f"Speed={source.read_speed_bps:,} B/s, Entropy={entropy_score:.2f}")
-            
+
             else:
                 source.available = False
                 source.failure_count += 1
@@ -208,7 +256,46 @@ class HardwareRNGManager:
             source.available = False
             source.failure_count += 1
             logger.error(f"Error testing source '{source.name}': {e}")
-    
+
+    def _record_quality_metrics(self, source_name: str, entropy_score: float, entropy_rate_bits: float) -> None:
+        history = self._quality_history.setdefault(source_name, [])
+        history.append(entropy_score)
+        if len(history) > 200:
+            del history[:-200]
+
+        rate_history = self._entropy_rate_history.setdefault(source_name, [])
+        rate_history.append(entropy_rate_bits)
+        if len(rate_history) > 200:
+            del rate_history[:-200]
+
+    def _detect_degradation(self, source: EntropySource) -> None:
+        history = self._quality_history.get(source.name, [])
+        rate_history = self._entropy_rate_history.get(source.name, [])
+
+        if len(history) < 5:
+            source.degraded = False
+            self._degraded_sources.pop(source.name, None)
+            return
+
+        recent_quality = statistics.mean(history[-5:])
+        recent_rate = statistics.mean(rate_history[-5:]) if rate_history else 0.0
+
+        quality_threshold = 6.5 if source.source_type != EntropySourceType.HARDWARE_RNG else 7.5
+        rate_threshold = 1e5  # bits per second minimum expected
+
+        if recent_quality < quality_threshold or recent_rate < rate_threshold:
+            if not source.degraded:
+                logger.warning(
+                    f"Entropy source '{source.name}' degraded (quality={recent_quality:.2f}, rate={recent_rate:.0f} bps)"
+                )
+            source.degraded = True
+            self._degraded_sources[source.name] = time.time()
+        else:
+            if source.degraded:
+                logger.info(f"Entropy source '{source.name}' recovered")
+            source.degraded = False
+            self._degraded_sources.pop(source.name, None)
+
     def _read_from_source(self, source: EntropySource, length: int) -> bytes:
         """Read entropy from a specific source"""
         if source.source_type == EntropySourceType.HARDWARE_RNG:
@@ -217,6 +304,18 @@ class HardwareRNGManager:
             return self._read_thermal_noise(length)
         elif source.source_type == EntropySourceType.MIXED_SOURCES:
             return self._read_system_urandom(length)
+        elif source.source_type == EntropySourceType.TIMING_JITTER:
+            return self._read_timing_jitter(length)
+        elif source.source_type == EntropySourceType.DISK_SEEK:
+            return self._read_disk_activity(length)
+        elif source.source_type == EntropySourceType.NETWORK_TIMING:
+            return self._read_network_activity(length)
+        elif source.source_type == EntropySourceType.INTERRUPT_JITTER:
+            return self._read_interrupt_activity(length)
+        elif source.source_type == EntropySourceType.MOUSE_MOVEMENT:
+            return self._read_user_motion_entropy(length)
+        elif source.source_type == EntropySourceType.KEYBOARD_TIMING:
+            return self._read_keyboard_timing(length)
         else:
             raise ValueError(f"Unsupported source type: {source.source_type}")
     
@@ -257,12 +356,81 @@ class HardwareRNGManager:
                 # Use LSBs of temperature differences
                 diff = readings[i] ^ readings[i + 1]
                 entropy_data.append(diff & 0xFF)
-                
+
                 if len(entropy_data) >= length:
                     break
-        
+
         return bytes(entropy_data[:length])
-    
+
+    def _read_timing_jitter(self, length: int) -> bytes:
+        """Generate entropy from high-resolution timing jitter"""
+        buf = bytearray()
+        for _ in range(max(1, length * 4)):
+            start = time.perf_counter_ns()
+            for _ in range(16):
+                pass
+            end = time.perf_counter_ns()
+            buf.append((end - start) & 0xFF)
+            if len(buf) >= length:
+                break
+        return bytes(buf[:length])
+
+    def _read_disk_activity(self, length: int) -> bytes:
+        """Derive entropy from disk statistics"""
+        path = Path('/proc/diskstats')
+        if not path.exists():
+            return self._generate_mixed_entropy(length)
+
+        try:
+            snapshot = path.read_bytes()
+            digest = hashlib.blake2b(snapshot + os.urandom(16), digest_size=64).digest()
+            return (digest * ((length // len(digest)) + 1))[:length]
+        except Exception as exc:
+            logger.debug(f"Disk entropy fallback: {exc}")
+            return self._generate_mixed_entropy(length)
+
+    def _read_network_activity(self, length: int) -> bytes:
+        """Derive entropy from network statistics"""
+        path = Path('/proc/net/dev')
+        if not path.exists():
+            return self._generate_mixed_entropy(length)
+
+        try:
+            snapshot = path.read_bytes()
+            tid = threading.get_ident().to_bytes(8, 'little', signed=False)
+            digest = hashlib.sha3_512(snapshot + tid + os.urandom(8)).digest()
+            return (digest * ((length // len(digest)) + 1))[:length]
+        except Exception as exc:
+            logger.debug(f"Network entropy fallback: {exc}")
+            return self._generate_mixed_entropy(length)
+
+    def _read_interrupt_activity(self, length: int) -> bytes:
+        """Derive entropy from interrupt statistics"""
+        path = Path('/proc/interrupts')
+        if not path.exists():
+            return self._generate_mixed_entropy(length)
+
+        try:
+            snapshot = path.read_bytes()
+            monotonic = time.monotonic_ns().to_bytes(8, 'little', signed=False)
+            digest = hashlib.sha512(snapshot + monotonic + os.urandom(8)).digest()
+            return (digest * ((length // len(digest)) + 1))[:length]
+        except Exception as exc:
+            logger.debug(f"Interrupt entropy fallback: {exc}")
+            return self._generate_mixed_entropy(length)
+
+    def _read_user_motion_entropy(self, length: int) -> bytes:
+        """Synthetic entropy for mouse movement when unavailable"""
+        seed = f"mouse:{time.time_ns()}:{os.getpid()}".encode('utf-8')
+        digest = hashlib.blake2b(seed, digest_size=64).digest()
+        return (digest * ((length // len(digest)) + 1))[:length]
+
+    def _read_keyboard_timing(self, length: int) -> bytes:
+        """Synthetic entropy for keyboard timing"""
+        seed = f"keyboard:{time.perf_counter_ns()}:{threading.get_ident()}".encode('utf-8')
+        digest = hashlib.sha3_256(seed).digest()
+        return (digest * ((length // len(digest)) + 1))[:length]
+
     def _read_system_urandom(self, length: int) -> bytes:
         """Read from system urandom"""
         return os.urandom(length)
@@ -271,7 +439,9 @@ class HardwareRNGManager:
         """Select primary and backup entropy sources"""
         with self._lock:
             # Sort sources by quality score
-            available_sources = [s for s in self.entropy_sources if s.available]
+            available_sources = [s for s in self.entropy_sources if s.available and not s.degraded]
+            if not available_sources:
+                available_sources = [s for s in self.entropy_sources if s.available]
             available_sources.sort(key=lambda s: s.quality_score, reverse=True)
             
             if available_sources:
@@ -286,7 +456,11 @@ class HardwareRNGManager:
                                f"(Quality: {backup.quality_score:.1f}/10)")
             else:
                 logger.error("No available entropy sources!")
-    
+
+    def _promote_backup(self) -> None:
+        """Promote the best available backup source to primary if needed"""
+        self._select_best_sources()
+
     def _start_quality_monitoring(self):
         """Start background quality monitoring"""
         self._monitoring_active = True
@@ -304,30 +478,18 @@ class HardwareRNGManager:
                 # Test primary source
                 if self.primary_source and self.primary_source.available:
                     test_data = self._read_from_source(self.primary_source, 1024)
-                    is_valid, metrics = validate_entropy_quality(test_data)
-                    
+                    _, metrics = validate_entropy_quality(test_data)
                     entropy_score = metrics.get('entropy_per_byte', 0.0)
-                    
-                    # Update quality history
-                    source_name = self.primary_source.name
-                    if source_name not in self._quality_history:
-                        self._quality_history[source_name] = []
-                    
-                    self._quality_history[source_name].append(entropy_score)
-                    
-                    # Keep only recent history
-                    if len(self._quality_history[source_name]) > 100:
-                        self._quality_history[source_name] = self._quality_history[source_name][-100:]
-                    
-                    # Check for quality degradation
-                    if len(self._quality_history[source_name]) >= 10:
-                        recent_avg = statistics.mean(self._quality_history[source_name][-10:])
-                        if recent_avg < 6.0:  # Below acceptable threshold
-                            logger.warning(f"Entropy quality degradation detected: {recent_avg:.2f}")
-                            self._select_best_sources()  # Reselect sources
-                
+                    entropy_rate_bits = entropy_score * 8 * self.primary_source.read_speed_bps
+                    self._record_quality_metrics(self.primary_source.name, entropy_score, entropy_rate_bits)
+                    self._detect_degradation(self.primary_source)
+
+                    if self.primary_source.degraded:
+                        logger.warning(f"Primary source '{self.primary_source.name}' degraded, promoting backup")
+                        self._promote_backup()
+
                 time.sleep(30)  # Check every 30 seconds
-                
+
             except Exception as e:
                 logger.error(f"Quality monitoring error: {e}")
                 time.sleep(60)  # Wait longer on error
@@ -347,11 +509,16 @@ class HardwareRNGManager:
             raise ValueError("Length must be positive")
         
         with self._lock:
+            if self.primary_source and self.primary_source.degraded:
+                logger.warning(f"Primary entropy source '{self.primary_source.name}' marked degraded")
+                self._promote_backup()
+
             # Try primary source first
-            if (self.primary_source and 
-                self.primary_source.available and 
-                self.primary_source.quality_score >= min_quality):
-                
+            if (self.primary_source and
+                self.primary_source.available and
+                self.primary_source.quality_score >= min_quality and
+                not self.primary_source.degraded):
+
                 try:
                     data = self._read_from_source(self.primary_source, length)
                     if len(data) == length:
@@ -362,9 +529,10 @@ class HardwareRNGManager:
             
             # Try backup sources
             for backup in self.backup_sources:
-                if (backup.available and 
-                    backup.quality_score >= min_quality):
-                    
+                if (backup.available and
+                    backup.quality_score >= min_quality and
+                    not backup.degraded):
+
                     try:
                         data = self._read_from_source(backup, length)
                         if len(data) == length:
@@ -381,26 +549,25 @@ class HardwareRNGManager:
     def _generate_mixed_entropy(self, length: int) -> bytes:
         """Generate entropy by mixing multiple sources"""
         entropy_chunks = []
-        
+
         # System urandom
         entropy_chunks.append(os.urandom(length))
-        
+
         # High-resolution timing
-        timing_entropy = bytearray()
-        for _ in range(length):
-            start = time.perf_counter_ns()
-            time.sleep(0.00001)  # 10 microseconds
-            end = time.perf_counter_ns()
-            timing_entropy.append((end - start) & 0xFF)
-        entropy_chunks.append(bytes(timing_entropy))
-        
+        entropy_chunks.append(self._read_timing_jitter(length))
+
         # Process and system state
-        state_data = struct.pack('>QII', 
-                                time.time_ns(), 
-                                os.getpid(), 
+        state_data = struct.pack('>QII',
+                                time.time_ns(),
+                                os.getpid(),
                                 hash(threading.current_thread()) & 0xFFFFFFFF)
         entropy_chunks.append(state_data * (length // len(state_data) + 1))
-        
+
+        # Interrupt, disk, and network activity provide additional entropy when available
+        entropy_chunks.append(self._read_interrupt_activity(length))
+        entropy_chunks.append(self._read_disk_activity(length))
+        entropy_chunks.append(self._read_network_activity(length))
+
         # Mix all entropy sources
         mixed = bytearray(length)
         for chunk in entropy_chunks:

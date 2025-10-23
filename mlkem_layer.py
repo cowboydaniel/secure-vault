@@ -9,8 +9,8 @@ key encapsulation for protecting OTP keys against quantum computers.
 import os
 import time
 import struct
-from typing import Optional, Tuple, Dict, List, Union
-from dataclasses import dataclass
+from typing import Optional, Tuple, Dict, List, Union, Any
+from dataclasses import dataclass, field
 import logging
 
 from crypto_utils import (
@@ -21,6 +21,14 @@ from crypto_utils import (
 )
 from constants import MLKEMContext
 from config import MLKEMConfig, SECURITY_LEVEL_BYTES
+from pqc_registry import PQCAlgorithmRegistry, PQCAlgorithmProfile
+
+try:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import x25519
+except Exception:  # pragma: no cover - optional dependency
+    serialization = None
+    x25519 = None
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +64,30 @@ class MLKEMEncapsulationResult:
     key_id: str
     timestamp: float
 
+
+@dataclass
+class HybridEncapsulationResult:
+    """Result of a hybrid (ML-KEM + classical) encapsulation"""
+
+    key_id: str
+    mlkem_result: MLKEMEncapsulationResult
+    classical_public_key: bytes
+    classical_shared_secret: bytes
+    combined_secret: bytes
+    algorithm_profile: Optional[PQCAlgorithmProfile]
+    timestamp: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class EncapsulationBenchmark:
+    """Benchmark result for encapsulation throughput"""
+
+    algorithm: str
+    iterations: int
+    average_time_ms: float
+    throughput_ops: float
+
 class MLKEMError(Exception):
     """ML-KEM specific errors"""
     pass
@@ -72,14 +104,19 @@ class PostQuantumMLKEM:
         """Initialize ML-KEM engine"""
         self.params = MLKEM_1024_PARAMS
         self._key_cache: Dict[str, MLKEMKeyPair] = {}
-        
+        self._encapsulation_cache: Dict[bytes, Dict[str, Any]] = {}
+        self._cache_ttl = 5.0
+
         # Try to import liboqs for real ML-KEM implementation
         self._liboqs_available = self._check_liboqs()
-        
+
         if not self._liboqs_available:
             logger.warning("liboqs not available, using simulation mode")
             logger.warning("Install liboqs for production use!")
-        
+
+        self.registry = PQCAlgorithmRegistry()
+        self.registry.register_default_algorithms(self._liboqs_available)
+
         logger.info("ML-KEM-1024 Post-Quantum Engine initialized")
     
     def _check_liboqs(self) -> bool:
@@ -155,21 +192,28 @@ class PostQuantumMLKEM:
         
         return public_key, secret_key
     
-    def encapsulate(self, public_key: bytes) -> MLKEMEncapsulationResult:
+    def encapsulate(self, public_key: bytes, use_cache: bool = True) -> MLKEMEncapsulationResult:
         """
         Encapsulate a shared secret using ML-KEM-1024.
-        
+
         Args:
             public_key: Recipient's public key
-            
+
         Returns:
             Encapsulation result with ciphertext and shared secret
         """
         if len(public_key) != self.params['public_key_bytes']:
             raise ValueError(f"Invalid public key size: {len(public_key)} (expected {self.params['public_key_bytes']})")
-        
+
+        cache_key = compute_sha3_512(public_key)[:16]
+        if use_cache:
+            cached = self._encapsulation_cache.get(cache_key)
+            if cached and time.time() - cached['timestamp'] < self._cache_ttl:
+                logger.debug("Returning cached ML-KEM encapsulation result")
+                return cached['result']
+
         start_time = time.time()
-        
+
         if self._liboqs_available and not public_key.startswith(b'SIM_PK_'):
             # Use real ML-KEM implementation
             ciphertext, shared_secret = self._encapsulate_real(public_key)
@@ -185,8 +229,8 @@ class PostQuantumMLKEM:
             info=b"MLKEM1024-512bit-expansion"
         )
         
-        key_id = compute_sha3_512(public_key)[:16].hex()
-        
+        key_id = cache_key.hex()
+
         result = MLKEMEncapsulationResult(
             ciphertext=ciphertext,
             shared_secret=shared_secret,
@@ -194,10 +238,126 @@ class PostQuantumMLKEM:
             key_id=key_id,
             timestamp=start_time
         )
-        
+
+        if use_cache:
+            self._encapsulation_cache[cache_key] = {
+                'timestamp': time.time(),
+                'result': result
+            }
+            self._prune_cache()
+
         logger.info(f"ML-KEM encapsulation completed: {key_id}")
         return result
-    
+
+    def hybrid_encapsulate(
+        self,
+        public_key: bytes,
+        peer_classical_public: Optional[bytes] = None,
+        use_cache: bool = True,
+    ) -> HybridEncapsulationResult:
+        """Perform a hybrid ML-KEM + classical encapsulation."""
+
+        mlkem_result = self.encapsulate(public_key, use_cache=use_cache)
+        classical_public, classical_secret = self._derive_classical_secret(peer_classical_public)
+        combined_secret = self._combine_hybrid_secret(mlkem_result.expanded_secret, classical_secret)
+        profile = self.registry.get("Hybrid-MLKEM-X25519")
+
+        metadata = {
+            'post_quantum_algorithm': 'ML-KEM-1024',
+            'classical_algorithm': 'X25519' if classical_public else 'synthetic-jitter',
+            'liboqs_available': self._liboqs_available,
+        }
+
+        return HybridEncapsulationResult(
+            key_id=mlkem_result.key_id,
+            mlkem_result=mlkem_result,
+            classical_public_key=classical_public,
+            classical_shared_secret=classical_secret,
+            combined_secret=combined_secret,
+            algorithm_profile=profile,
+            timestamp=time.time(),
+            metadata=metadata,
+        )
+
+    def list_algorithms(self) -> List[PQCAlgorithmProfile]:
+        """Expose registered PQC algorithm options."""
+
+        return self.registry.list_algorithms()
+
+    def benchmark_encapsulation(self, iterations: int = 10) -> EncapsulationBenchmark:
+        """Benchmark encapsulation throughput for ML-KEM."""
+
+        keypair = self.generate_keypair()
+        start = time.time()
+        for _ in range(max(1, iterations)):
+            self.encapsulate(keypair.public_key, use_cache=False)
+        elapsed = time.time() - start
+        average_ms = (elapsed / max(1, iterations)) * 1000
+        throughput = iterations / max(elapsed, 1e-9)
+
+        return EncapsulationBenchmark(
+            algorithm="ML-KEM-1024",
+            iterations=iterations,
+            average_time_ms=average_ms,
+            throughput_ops=throughput,
+        )
+
+    def _derive_classical_secret(self, peer_public: Optional[bytes]) -> Tuple[bytes, bytes]:
+        """Derive the classical component of the hybrid secret."""
+
+        if x25519 and serialization:
+            private_key = x25519.X25519PrivateKey.generate()
+            public_bytes = private_key.public_key().public_bytes(
+                serialization.Encoding.Raw,
+                serialization.PublicFormat.Raw,
+            )
+
+            if peer_public:
+                peer_key = x25519.X25519PublicKey.from_public_bytes(peer_public)
+                shared = private_key.exchange(peer_key)
+            else:
+                shared = compute_sha3_512(public_bytes + secure_random_bytes(32))[:32]
+
+            return public_bytes, shared
+
+        return b"", secure_random_bytes(32)
+
+    def _combine_hybrid_secret(self, pq_secret: bytes, classical_secret: bytes) -> bytes:
+        """Combine PQC and classical secrets into a single key."""
+
+        salt = classical_secret[:16]
+        if len(salt) < 16:
+            salt = salt.ljust(16, b"\x00")
+
+        material = pq_secret + classical_secret
+        return derive_key_hkdf_sha3_512(
+            material,
+            SECURITY_LEVEL_BYTES,
+            salt=salt,
+            info=b"Hybrid-MLKEM-X25519",
+        )
+
+    def _prune_cache(self) -> None:
+        """Remove stale entries from the encapsulation cache."""
+
+        if len(self._encapsulation_cache) <= 32:
+            return
+
+        now = time.time()
+        stale_keys = [
+            key for key, value in self._encapsulation_cache.items()
+            if now - value['timestamp'] > self._cache_ttl
+        ]
+        for key in stale_keys:
+            self._encapsulation_cache.pop(key, None)
+
+        while len(self._encapsulation_cache) > 32:
+            oldest_key = min(
+                self._encapsulation_cache.items(),
+                key=lambda item: item[1]['timestamp'],
+            )[0]
+            self._encapsulation_cache.pop(oldest_key, None)
+
     def _encapsulate_real(self, public_key: bytes) -> Tuple[bytes, bytes]:
         """Real ML-KEM encapsulation using liboqs"""
         try:

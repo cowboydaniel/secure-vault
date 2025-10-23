@@ -11,6 +11,9 @@ import ctypes
 import ctypes.util
 import logging
 import threading
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 from enum import Enum, auto
 
@@ -18,6 +21,162 @@ from enum import Enum, auto
 from secure_memory import SecureBytes
 
 logger = logging.getLogger(__name__)
+
+_instruction_helper_lock = threading.RLock()
+_instruction_helper: Optional[ctypes.CDLL] = None
+
+INSTRUCTION_HELPER_CODE = r"""
+#include <immintrin.h>
+#include <stdint.h>
+#include <string.h>
+#include <cpuid.h>
+
+static int has_rdrand_flag(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid_max(0, NULL) < 1) {
+        return 0;
+    }
+    __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+    return (ecx & bit_RDRND) != 0;
+}
+
+static int has_rdseed_flag(void) {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid_max(0, NULL) < 7) {
+        return 0;
+    }
+    __cpuid_count(7, 0, &eax, &ebx, &ecx, &edx);
+    return (ebx & bit_RDSEED) != 0;
+}
+
+int has_rdrand(void) {
+    return has_rdrand_flag();
+}
+
+int has_rdseed(void) {
+    return has_rdseed_flag();
+}
+
+int rdrand_bytes(unsigned char *buffer, unsigned long long length) {
+#ifdef __RDRND__
+    if (!has_rdrand_flag()) {
+        return 0;
+    }
+    unsigned long long offset = 0;
+    while (offset < length) {
+        unsigned int value = 0;
+        int retries = 10;
+        while (retries-- > 0) {
+            if (_rdrand32_step(&value)) {
+                break;
+            }
+        }
+        if (retries < 0) {
+            return 0;
+        }
+        unsigned long long remaining = length - offset;
+        unsigned long long copy = remaining < sizeof(value) ? remaining : sizeof(value);
+        memcpy(buffer + offset, &value, copy);
+        offset += copy;
+    }
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int rdseed_bytes(unsigned char *buffer, unsigned long long length) {
+#ifdef __RDSEED__
+    if (!has_rdseed_flag()) {
+        return 0;
+    }
+    unsigned long long offset = 0;
+    while (offset < length) {
+        unsigned int value = 0;
+        int retries = 10;
+        while (retries-- > 0) {
+            if (_rdseed32_step(&value)) {
+                break;
+            }
+        }
+        if (retries < 0) {
+            return 0;
+        }
+        unsigned long long remaining = length - offset;
+        unsigned long long copy = remaining < sizeof(value) ? remaining : sizeof(value);
+        memcpy(buffer + offset, &value, copy);
+        offset += copy;
+    }
+    return 1;
+#else
+    return 0;
+#endif
+}
+"""
+
+
+def _cpu_has_feature(flag: str) -> bool:
+    flag = flag.lower()
+    try:
+        system = platform.system().lower()
+        if system == 'linux':
+            cpuinfo = Path('/proc/cpuinfo')
+            if cpuinfo.exists():
+                return flag in cpuinfo.read_text().lower()
+        elif system == 'darwin':
+            output = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.features'], stderr=subprocess.DEVNULL)
+            return flag in output.decode().lower()
+        elif system == 'windows':
+            output = subprocess.check_output(['wmic', 'cpu', 'get', 'Name,ProcessorId'], stderr=subprocess.DEVNULL)
+            return flag in output.decode().lower()
+    except Exception:
+        pass
+    return False
+
+
+def _compile_instruction_helper() -> Optional[Path]:
+    try:
+        workdir = Path(tempfile.mkdtemp(prefix='secure_vault_hw_rng_'))
+        source_path = workdir / 'hw_rng_helper.c'
+        source_path.write_text(INSTRUCTION_HELPER_CODE)
+        output_path = workdir / 'hw_rng_helper.so'
+
+        compiler = os.environ.get('CC', 'cc')
+        cmd = [compiler, '-shared', '-fPIC', '-O2', str(source_path), '-o', str(output_path)]
+        if platform.machine().lower() in ('x86_64', 'amd64', 'i386', 'i686'):
+            cmd.extend(['-mrdrnd', '-mrdseed'])
+
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return output_path
+    except Exception as exc:
+        logger.debug(f"Failed to compile instruction helper: {exc}")
+        return None
+
+
+def _get_instruction_helper() -> Optional[ctypes.CDLL]:
+    global _instruction_helper
+    with _instruction_helper_lock:
+        if _instruction_helper is not None:
+            return _instruction_helper
+
+        helper_path = _compile_instruction_helper()
+        if not helper_path:
+            return None
+
+        try:
+            helper = ctypes.CDLL(str(helper_path))
+            helper.rdrand_bytes.argtypes = [ctypes.POINTER(ctypes.c_ubyte), ctypes.c_uint64]
+            helper.rdrand_bytes.restype = ctypes.c_int
+            helper.rdseed_bytes.argtypes = [ctypes.POINTER(ctypes.c_ubyte), ctypes.c_uint64]
+            helper.rdseed_bytes.restype = ctypes.c_int
+            helper.has_rdrand.restype = ctypes.c_int
+            helper.has_rdseed.restype = ctypes.c_int
+            _instruction_helper = helper
+            return helper
+        except Exception as exc:
+            logger.debug(f"Failed to load instruction helper: {exc}")
+            return None
+
 
 class HWRNGType(Enum):
     """Types of hardware RNG sources"""
@@ -64,41 +223,90 @@ class RdRandSource(HWRNGSource):
         super().__init__()
         self.type = HWRNGType.RDRAND
         self.quality = 0.9  # High quality hardware RNG
-    
+        self._helper: Optional[ctypes.CDLL] = None
+
     def initialize(self) -> bool:
         """Check if RDRAND is available"""
         try:
-            # Try to execute RDRAND instruction
-            result = ctypes.c_uint32()
-            # This is a simplified check - in practice, we'd use inline assembly or a library
-            # that provides access to CPU instructions
-            self.available = hasattr(ctypes.pythonapi, '_rdrand32_step')
-            if not self.available:
+            if not _cpu_has_feature('rdrand'):
                 self.last_error = "RDRAND instruction not available on this CPU"
                 return False
-                
+
+            helper = _get_instruction_helper()
+            if not helper or helper.has_rdrand() == 0:
+                self.last_error = "RDRAND helper not available"
+                return False
+
+            self._helper = helper
+            self.available = True
             self.initialized = True
             return True
-            
+
         except Exception as e:
             self.last_error = f"RDRAND initialization failed: {str(e)}"
             return False
-    
+
     def read(self, size: int) -> Optional[bytes]:
         """Read random bytes using RDRAND instruction"""
         if not self.available or not self.initialized:
             return None
-            
+
         try:
-            result = bytearray(size)
-            for i in range(0, size, 4):
-                # In a real implementation, this would use the RDRAND instruction
-                # For now, we'll use os.urandom as a fallback
-                chunk_size = min(4, size - i)
-                result[i:i+chunk_size] = os.urandom(chunk_size)
-            return bytes(result)
+            if self._helper:
+                buffer = (ctypes.c_ubyte * size)()
+                if self._helper.rdrand_bytes(buffer, ctypes.c_uint64(size)) == 1:
+                    return bytes(buffer)
+                self.last_error = "RDRAND helper returned failure"
+            # Fallback to os.urandom
+            return os.urandom(size)
         except Exception as e:
             self.last_error = f"RDRAND read failed: {str(e)}"
+            return None
+
+
+class RdSeedSource(HWRNGSource):
+    """Intel RDSEED instruction-based RNG"""
+
+    def __init__(self):
+        super().__init__()
+        self.type = HWRNGType.RDSEED
+        self.quality = 0.98
+        self._helper: Optional[ctypes.CDLL] = None
+
+    def initialize(self) -> bool:
+        """Check if RDSEED is available"""
+        try:
+            if not _cpu_has_feature('rdseed'):
+                self.last_error = "RDSEED instruction not available on this CPU"
+                return False
+
+            helper = _get_instruction_helper()
+            if not helper or helper.has_rdseed() == 0:
+                self.last_error = "RDSEED helper not available"
+                return False
+
+            self._helper = helper
+            self.available = True
+            self.initialized = True
+            return True
+        except Exception as exc:
+            self.last_error = f"RDSEED initialization failed: {exc}"
+            return False
+
+    def read(self, size: int) -> Optional[bytes]:
+        """Read random bytes using RDSEED instruction"""
+        if not self.available or not self.initialized:
+            return None
+
+        try:
+            if self._helper:
+                buffer = (ctypes.c_ubyte * size)()
+                if self._helper.rdseed_bytes(buffer, ctypes.c_uint64(size)) == 1:
+                    return bytes(buffer)
+                self.last_error = "RDSEED helper returned failure"
+            return os.urandom(size)
+        except Exception as exc:
+            self.last_error = f"RDSEED read failed: {exc}"
             return None
 
 class DevHWRNGSource(HWRNGSource):
@@ -182,6 +390,9 @@ class HWRNGManager:
     
     def _add_linux_sources(self) -> None:
         """Add Linux-specific RNG sources"""
+        self.sources.append(RdSeedSource())
+        self.sources.append(RdRandSource())
+
         # Try /dev/hwrng first if it exists
         if os.path.exists("/dev/hwrng"):
             self.sources.append(DevHWRNGSource("/dev/hwrng"))
@@ -193,8 +404,9 @@ class HWRNGManager:
     def _add_windows_sources(self) -> None:
         """Add Windows-specific RNG sources"""
         # Try RDRAND/RDSEED first
+        self.sources.append(RdSeedSource())
         self.sources.append(RdRandSource())
-        
+
         # Try Windows CNG (Cryptography API: Next Generation)
         try:
             import ctypes.wintypes
@@ -205,6 +417,7 @@ class HWRNGManager:
     def _add_darwin_sources(self) -> None:
         """Add macOS-specific RNG sources"""
         # Try RDRAND/RDSEED first
+        self.sources.append(RdSeedSource())
         self.sources.append(RdRandSource())
         
         # Try macOS Security.framework
@@ -217,6 +430,8 @@ class HWRNGManager:
     def _add_platform_agnostic_sources(self) -> None:
         """Add platform-agnostic RNG sources"""
         # Add RDRAND/RDSEED if not already added
+        if not any(isinstance(s, RdSeedSource) for s in self.sources):
+            self.sources.append(RdSeedSource())
         if not any(isinstance(s, RdRandSource) for s in self.sources):
             self.sources.append(RdRandSource())
         
