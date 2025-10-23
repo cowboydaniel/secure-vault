@@ -15,7 +15,9 @@ This module provides the high-level authentication API used by the GUI and CLI.
 import os
 import uuid
 import logging
-from typing import Optional, Dict, Any, Union
+import threading
+from collections import defaultdict
+from typing import Optional, Dict, Union, DefaultDict
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
@@ -71,7 +73,8 @@ class AuthSession:
         user_id: int,
         master_key: Union[bytes, bytearray],
         created_at: datetime,
-        expires_at: datetime
+        expires_at: datetime,
+        lock: Optional[threading.Lock] = None,
     ):
         """
         Initialize authentication session.
@@ -89,6 +92,7 @@ class AuthSession:
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
+        self._lock = lock or threading.Lock()
 
     def get_master_key(self) -> bytes:
         """
@@ -100,11 +104,15 @@ class AuthSession:
         Raises:
             SessionExpiredError: If session has expired
         """
-        if self.is_expired():
-            raise SessionExpiredError("Session has expired")
+        with self._lock:
+            if self.is_expired():
+                raise SessionExpiredError("Session has expired")
 
-        self.last_activity = datetime.now()
-        return bytes(self._master_key)
+            if self._master_key is None:
+                raise SessionExpiredError("Session has ended")
+
+            self.last_activity = datetime.now()
+            return bytes(self._master_key)
 
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -162,6 +170,7 @@ class AuthManager:
 
         # Active sessions (in-memory)
         self._sessions: Dict[str, AuthSession] = {}
+        self._session_locks: DefaultDict[str, threading.Lock] = defaultdict(threading.Lock)
 
         logger.info("Authentication manager initialized")
 
@@ -475,16 +484,20 @@ class AuthManager:
             ip_address=ip_address
         )
 
+        lock = self._session_locks[session_id]
+
         # Create in-memory session with master key
         session = AuthSession(
             session_id=session_id,
             user_id=user_id,
             master_key=master_key,
             created_at=created_at,
-            expires_at=expires_at
+            expires_at=expires_at,
+            lock=lock,
         )
 
-        self._sessions[session_id] = session
+        with lock:
+            self._sessions[session_id] = session
 
         logger.info(f"Created session {session_id} for user {user_id}")
         return session
@@ -502,34 +515,55 @@ class AuthManager:
         Raises:
             SessionExpiredError: Session has expired
         """
-        session = self._sessions.get(session_id)
+        lock = self._session_locks[session_id]
+        session: Optional[AuthSession] = None
+        error: Optional[SessionExpiredError] = None
+        should_remove_lock = False
+        delete_from_db = False
 
-        if not session:
-            # Check if session exists in database
-            db_session = self.db.get_session(session_id)
-            if not db_session:
-                return None
+        with lock:
+            session = self._sessions.get(session_id)
 
-            # Session exists in DB but not in memory (e.g., after restart)
-            # User needs to re-authenticate
-            raise SessionExpiredError("Session expired - please log in again")
+            if not session:
+                db_session = self.db.get_session(session_id)
+                if not db_session:
+                    should_remove_lock = True
+                    session = None
+                else:
+                    should_remove_lock = True
+                    error = SessionExpiredError("Session expired - please log in again")
+            else:
+                if session.is_expired():
+                    session.close()
+                    del self._sessions[session_id]
+                    should_remove_lock = True
+                    delete_from_db = True
+                    error = SessionExpiredError("Session has expired")
+                else:
+                    idle_time = datetime.now() - session.last_activity
+                    if idle_time.total_seconds() > (self.config.session_idle_timeout_minutes * 60):
+                        logger.info(f"Session {session_id} expired due to inactivity")
+                        session.close()
+                        del self._sessions[session_id]
+                        should_remove_lock = True
+                        delete_from_db = True
+                        error = SessionExpiredError("Session expired due to inactivity")
+                    else:
+                        self.db.update_session_activity(session_id)
 
-        # Check if expired
-        if session.is_expired():
-            self.logout(session_id)
-            raise SessionExpiredError("Session has expired")
+        if session is not None and error is None:
+            return session
 
-        # Check idle timeout
-        idle_time = datetime.now() - session.last_activity
-        if idle_time.total_seconds() > (self.config.session_idle_timeout_minutes * 60):
-            logger.info(f"Session {session_id} expired due to inactivity")
-            self.logout(session_id)
-            raise SessionExpiredError("Session expired due to inactivity")
+        if delete_from_db:
+            self.db.delete_session(session_id)
 
-        # Update activity timestamp in database
-        self.db.update_session_activity(session_id)
+        if should_remove_lock:
+            self._session_locks.pop(session_id, None)
 
-        return session
+        if error:
+            raise error
+
+        return None
 
     def logout(self, session_id: str) -> None:
         """
@@ -540,15 +574,14 @@ class AuthManager:
         Args:
             session_id: Session ID to terminate
         """
-        # Get session
-        session = self._sessions.get(session_id)
+        lock = self._session_locks[session_id]
 
-        if session:
-            # Wipe master key from memory
-            session.close()
+        with lock:
+            session = self._sessions.pop(session_id, None)
+            if session:
+                session.close()
 
-            # Remove from memory
-            del self._sessions[session_id]
+        self._session_locks.pop(session_id, None)
 
         # Delete from database
         self.db.delete_session(session_id)
