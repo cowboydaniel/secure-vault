@@ -1,3 +1,4 @@
 # Keep the logs directory tracked while ignoring generated log files
 *
 !.gitignore
+!deployment_validation_2024-06-15.log

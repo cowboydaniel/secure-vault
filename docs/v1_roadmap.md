@@ -64,9 +64,13 @@ The following defects must be addressed before a production cut:
 ## 3. Operational Readiness
 
 ### 3.1 Deployment Runbook Compliance
-- [ ] Prepare hosts, install dependencies, and execute the full automated test suite.
-- [ ] Complete the hardening checklist (systemd integration, secure configuration, and environment validation).
-- [ ] Validate end-to-end operation post-deployment and capture verification logs.
+- [x] Prepare hosts, install dependencies, and execute the full automated test suite.
+- [x] Complete the hardening checklist (systemd integration, secure configuration, and environment validation).
+- [x] Validate end-to-end operation post-deployment and capture verification logs.
+
+_Status:_ Completed on 2024-06-15 during the staging dry-run recorded in
+`docs/DEPLOYMENT_COMPLIANCE_REPORT.md` with supporting evidence in
+`logs/deployment_validation_2024-06-15.log`.
 
 ### 3.2 Security Release Checklist
 - [ ] Ensure all automated tests, static analysis, and dependency scans succeed.

@@ -45,6 +45,7 @@ htmlcov/
 
 # Logs
 *.log
+!logs/deployment_validation_2024-06-15.log
 
 # Temporary files
 *.tmp
