@@ -13,7 +13,7 @@ from auth_manager import (
     SessionHijackingError,
 )
 from instance_guard import InstanceGuard, TamperDetectedError
-from pin_manager import PINManager, PINValidationError
+from pin_manager import PINManager, PINValidationError, PINPolicy
 from rate_limiter import AccountLockedError, RateLimitError
 from user_manager import UserManager, UserExistsError
 
@@ -42,7 +42,7 @@ class AuthenticationTestCase(unittest.TestCase):
         """PIN manager should encrypt and verify master keys reliably."""
 
         manager = PINManager()
-        pin = "758321"
+        pin = "75832164"
         salt = manager.generate_salt()
         derived = manager.derive_key_from_pin(pin, salt)
         master_key = manager.generate_master_key()
@@ -56,14 +56,27 @@ class AuthenticationTestCase(unittest.TestCase):
         self.assertTrue(manager.verify_master_key(master_key, verification_marker, b"verification"))
 
         with self.assertRaises(PINValidationError):
-            manager.validate_pin_format("123456")
+            manager.validate_pin_format("1234567")
+
+    def test_configurable_alphanumeric_pin_policy(self) -> None:
+        """PIN policy can require alphanumeric PINs when configured."""
+
+        policy = PINPolicy(min_length=10, require_letter=True)
+        manager = PINManager(pin_policy=policy)
+
+        # Valid: meets length, includes both letters and digits
+        manager.validate_pin_format("VaultKey90")
+
+        # Invalid: lacks alphabetic characters required by policy
+        with self.assertRaises(PINValidationError):
+            manager.validate_pin_format("1234567890")
 
     def test_end_to_end_auth_flow(self) -> None:
         """Creating a user should allow successful PIN authentication."""
 
         email = "alice@example.com"
         password = "Sup3rSecurePass!"
-        pin = "839201"
+        pin = "83920174"
 
         user_id = self.user_manager.create_user(email=email, password=password, pin=pin)
         self.assertIsInstance(user_id, int)
@@ -162,7 +175,7 @@ class AuthenticationTestCase(unittest.TestCase):
 
         email = "bob@example.com"
         password = "AnotherStr0ngPass!"
-        pin = "675849"
+        pin = "67584920"
 
         self.user_manager.create_user(email=email, password=password, pin=pin)
 
@@ -173,17 +186,17 @@ class AuthenticationTestCase(unittest.TestCase):
 
         for _ in range(limiter.config.max_attempts):
             with self.assertRaises(InvalidCredentialsError):
-                self.auth_manager.authenticate_with_pin(email=email, pin="000000")
+                self.auth_manager.authenticate_with_pin(email=email, pin="00000000")
 
         with self.assertRaises(AccountLockedError):
-            self.auth_manager.authenticate_with_pin(email=email, pin="000000")
+            self.auth_manager.authenticate_with_pin(email=email, pin="00000000")
 
     def test_prevents_multiple_accounts(self) -> None:
         """Only a single owner account may be provisioned."""
 
         email = "owner@example.com"
         password = "Secur3OwnerPass!"
-        pin = "746291"
+        pin = "74629183"
 
         self.user_manager.create_user(email=email, password=password, pin=pin)
 
@@ -191,7 +204,7 @@ class AuthenticationTestCase(unittest.TestCase):
             self.user_manager.create_user(
                 email="second@example.com",
                 password="AnotherStrongPass1!",
-                pin="839120",
+                pin="83912057",
             )
 
     def test_global_rate_limit_blocks_unknown_email(self) -> None:
@@ -208,10 +221,10 @@ class AuthenticationTestCase(unittest.TestCase):
 
         for _ in range(limiter.config.max_email_attempts):
             with self.assertRaises(InvalidCredentialsError):
-                self.auth_manager.authenticate_with_pin(email=target_email, pin="000000")
+                self.auth_manager.authenticate_with_pin(email=target_email, pin="00000000")
 
         with self.assertRaises(RateLimitError):
-            self.auth_manager.authenticate_with_pin(email=target_email, pin="000000")
+            self.auth_manager.authenticate_with_pin(email=target_email, pin="00000000")
 
     def test_aliases_share_device_limits(self) -> None:
         """Email aliases from the same device share throttling state."""
@@ -255,7 +268,7 @@ class AuthenticationTestCase(unittest.TestCase):
         self.user_manager.create_user(
             email="alice@example.com",
             password="Sup3rSecurePass!",
-            pin="839201",
+            pin="83920174",
         )
 
         self.db.close()
@@ -270,7 +283,7 @@ class AuthenticationTestCase(unittest.TestCase):
         self.user_manager.create_user(
             email="owner@example.com",
             password="Secur3OwnerPass!",
-            pin="746291",
+            pin="74629183",
         )
 
         state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME

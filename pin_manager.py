@@ -14,10 +14,10 @@ Verification happens by attempting decryption - if successful, PIN is correct.
 """
 
 import os
-import re
 import logging
 import hashlib
-from typing import Tuple, Optional, Dict, Any, Union
+import string
+from typing import Tuple, Optional, Dict, Any, Union, Set
 from dataclasses import dataclass
 
 # Argon2 for key derivation
@@ -50,11 +50,13 @@ WEAK_PINS = {
     '1234', '4321', '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
 }
 
+ALPHANUMERIC_CHARACTERS = string.ascii_letters + string.digits
+
 
 @dataclass
 class Argon2Params:
     """Argon2id parameters for PIN derivation"""
-    time_cost: int = 3            # Number of iterations
+    time_cost: int = 2            # Number of iterations
     memory_cost: int = 65536      # Memory in KiB (64 MB)
     parallelism: int = 4          # Number of threads
     hash_length: int = 32         # Output length in bytes (256-bit)
@@ -88,6 +90,31 @@ class Argon2Params:
         )
 
 
+@dataclass
+class PINPolicy:
+    """Configurable PIN policy requirements."""
+
+    min_length: int = 8
+    max_length: int = 64
+    allow_digits: bool = True
+    allow_letters: bool = True
+    allow_special: bool = False
+    require_digit: bool = True
+    require_letter: bool = False
+    allowed_special_chars: str = ""
+
+    def allowed_characters(self) -> Set[str]:
+        """Compute the set of allowed characters based on the policy."""
+
+        allowed = set()
+        if self.allow_digits:
+            allowed.update(string.digits)
+        if self.allow_letters:
+            allowed.update(string.ascii_letters)
+        if self.allow_special:
+            allowed.update(self.allowed_special_chars)
+        return allowed
+
 class PINValidationError(Exception):
     """Raised when PIN validation fails"""
     pass
@@ -108,7 +135,11 @@ class PINManager:
     - PIN strength validation
     """
 
-    def __init__(self, argon2_params: Optional[Argon2Params] = None):
+    def __init__(
+        self,
+        argon2_params: Optional[Argon2Params] = None,
+        pin_policy: Optional[PINPolicy] = None,
+    ):
         """
         Initialize PIN manager.
 
@@ -116,6 +147,7 @@ class PINManager:
             argon2_params: Argon2 parameters (uses defaults if None)
         """
         self.params = argon2_params or Argon2Params()
+        self.policy = pin_policy or PINPolicy()
 
         if not ARGON2_AVAILABLE:
             logger.warning("Argon2 not available - using PBKDF2 fallback (less secure!)")
@@ -125,7 +157,7 @@ class PINManager:
         Validate PIN format and strength.
 
         Requirements:
-        - 6-8 digits only
+        - Minimum length and allowed characters are governed by the configured policy
         - No repeating digits (e.g., 111111)
         - No sequential digits (e.g., 123456)
         - Not in common weak PIN list
@@ -136,13 +168,36 @@ class PINManager:
         Raises:
             PINValidationError: If PIN doesn't meet requirements
         """
-        # Check length
-        if len(pin) < 6 or len(pin) > 8:
-            raise PINValidationError("PIN must be 6-8 digits")
+        policy = self.policy
 
-        # Check if digits only
-        if not pin.isdigit():
-            raise PINValidationError("PIN must contain only digits")
+        # Check length
+        if len(pin) < policy.min_length or len(pin) > policy.max_length:
+            raise PINValidationError(
+                f"PIN must be between {policy.min_length} and {policy.max_length} characters"
+            )
+
+        allowed_chars = policy.allowed_characters()
+        if allowed_chars and not all(char in allowed_chars for char in pin):
+            raise PINValidationError(
+                "PIN contains invalid characters for the configured policy"
+            )
+
+        if policy.require_digit and not any(char.isdigit() for char in pin):
+            raise PINValidationError("PIN must include at least one digit")
+
+        if policy.require_letter and not any(char.isalpha() for char in pin):
+            raise PINValidationError("PIN must include at least one letter")
+
+        if not policy.allow_letters and any(char.isalpha() for char in pin):
+            raise PINValidationError("PIN may not contain letters")
+
+        if not policy.allow_digits and any(char.isdigit() for char in pin):
+            raise PINValidationError("PIN may not contain digits")
+
+        if not policy.allow_special and any(
+            char not in ALPHANUMERIC_CHARACTERS for char in pin
+        ):
+            raise PINValidationError("PIN may not contain special characters")
 
         # Check for repeating digits (e.g., 111111)
         if len(set(pin)) == 1:
@@ -152,7 +207,7 @@ class PINManager:
         if self._is_sequential(pin):
             raise PINValidationError("PIN cannot be sequential (e.g., 123456)")
 
-        # Check against weak PIN list
+        # Check against weak PIN list (only applies to purely numeric PINs)
         if pin in WEAK_PINS:
             raise PINValidationError("PIN is too common - please choose a stronger PIN")
 
@@ -162,15 +217,18 @@ class PINManager:
 
     def _is_sequential(self, pin: str) -> bool:
         """Check if PIN has sequential digits"""
+        if not pin.isdigit():
+            return False
+
         # Check ascending
         ascending = all(
-            int(pin[i+1]) == int(pin[i]) + 1
+            int(pin[i + 1]) == int(pin[i]) + 1
             for i in range(len(pin) - 1)
         )
 
         # Check descending
         descending = all(
-            int(pin[i+1]) == int(pin[i]) - 1
+            int(pin[i + 1]) == int(pin[i]) - 1
             for i in range(len(pin) - 1)
         )
 
@@ -208,7 +266,7 @@ class PINManager:
         produces a cryptographically strong encryption key.
 
         Args:
-            pin: User's PIN (6-8 digits)
+            pin: User's PIN (minimum 8 characters per policy)
             salt: Random salt (16 bytes)
 
         Returns:
