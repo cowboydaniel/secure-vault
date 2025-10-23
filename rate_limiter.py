@@ -16,11 +16,14 @@ Security Features:
 
 import time
 import logging
+import threading
+import hashlib
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
 from auth_database import AuthDatabase
+from auth_secrets import get_email_pepper
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +40,28 @@ class RateLimitConfig:
     global_window_seconds: int = 300         # Window size for device-level rate limiting
     max_email_attempts: int = 8              # Failed attempts per email hash
     email_window_seconds: int = 120          # Window size for per-email throttling
+    captcha_threshold: int = 6               # Failures before requiring CAPTCHA
+    captcha_cooldown_seconds: int = 900      # Time window before CAPTCHA requirement expires
+
+
+@dataclass(frozen=True)
+class AttemptContext:
+    """Composite fingerprint for tracking authentication attempts."""
+
+    email_hash: Optional[bytes]
+    normalized_email_hash: Optional[bytes]
+    ip_address: Optional[str]
+    device_fingerprint: Optional[str]
+    user_agent: Optional[str]
+    attempt_key: Optional[bytes]
 
 
 class RateLimitError(Exception):
     """Raised when rate limit is exceeded"""
-    def __init__(self, message: str, retry_after: Optional[float] = None):
+    def __init__(self, message: str, retry_after: Optional[float] = None, *, requires_captcha: bool = False):
         super().__init__(message)
         self.retry_after = retry_after  # Seconds until retry allowed
+        self.requires_captcha = requires_captcha
 
 
 class AccountLockedError(RateLimitError):
@@ -82,6 +100,35 @@ class RateLimiter:
 
         # In-memory cache for last attempt times (to implement backoff)
         self._last_attempt_time: Dict[int, float] = {}
+        self._lock = threading.Lock()
+
+    def build_attempt_context(
+        self,
+        *,
+        email: Optional[str] = None,
+        email_hash: Optional[bytes] = None,
+        ip_address: Optional[str] = None,
+        device_fingerprint: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> AttemptContext:
+        """Construct an :class:`AttemptContext` for downstream tracking."""
+
+        normalized_hash = self._hash_normalized_email(email)
+        attempt_key = self._derive_attempt_key(
+            normalized_hash or email_hash,
+            ip_address,
+            device_fingerprint,
+            user_agent,
+        )
+
+        return AttemptContext(
+            email_hash=email_hash,
+            normalized_email_hash=normalized_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+            attempt_key=attempt_key,
+        )
 
     def check_rate_limit(self, user_id: int) -> None:
         """
@@ -120,7 +167,7 @@ class RateLimiter:
             required_delay = self._calculate_backoff_delay(user.failed_attempts)
 
             # Check last attempt time
-            last_attempt = self._last_attempt_time.get(user_id, 0)
+            last_attempt = self._get_last_attempt_time(user_id)
             time_since_last = time.time() - last_attempt
 
             if time_since_last < required_delay:
@@ -130,22 +177,43 @@ class RateLimiter:
                     retry_after=retry_after
                 )
 
-    def check_global_rate_limit(self, email_hash: Optional[bytes]) -> None:
+    def check_global_rate_limit(self, context: AttemptContext) -> None:
         """Enforce device-level and per-email throttles."""
 
+        if context.attempt_key:
+            state = self.db.get_device_attempt_state(context.attempt_key)
+            if state and state.captcha_required_until:
+                retry_after = (state.captcha_required_until - datetime.now()).total_seconds()
+                if retry_after > 0:
+                    raise RateLimitError(
+                        "Additional verification is required before trying again.",
+                        retry_after=retry_after,
+                        requires_captcha=True,
+                    )
+
         self._enforce_window_limit(
-            email_hash=None,
+            context=context,
             max_attempts=self.config.max_global_attempts,
             window_seconds=self.config.global_window_seconds,
             scope="device",
+            use_attempt_key=True,
         )
 
-        if email_hash is not None:
+        if context.normalized_email_hash is not None:
             self._enforce_window_limit(
-                email_hash=email_hash,
+                context=context,
                 max_attempts=self.config.max_email_attempts,
                 window_seconds=self.config.email_window_seconds,
                 scope="account",
+                use_normalized_hash=True,
+            )
+        elif context.email_hash is not None:
+            self._enforce_window_limit(
+                context=context,
+                max_attempts=self.config.max_email_attempts,
+                window_seconds=self.config.email_window_seconds,
+                scope="account",
+                use_email_hash=True,
             )
 
     def record_failed_attempt(self, user_id: int) -> None:
@@ -162,7 +230,8 @@ class RateLimiter:
         failed_count = self.db.increment_failed_attempts(user_id)
 
         # Record attempt time for exponential backoff
-        self._last_attempt_time[user_id] = time.time()
+        timestamp = time.time()
+        self._set_last_attempt_time(user_id, timestamp)
 
         logger.warning(
             f"Failed authentication attempt for user {user_id}. "
@@ -189,8 +258,7 @@ class RateLimiter:
         self.db.reset_failed_attempts(user_id)
 
         # Clear backoff timer
-        if user_id in self._last_attempt_time:
-            del self._last_attempt_time[user_id]
+        self._clear_last_attempt_time(user_id)
 
         logger.info(f"Successful authentication for user {user_id}. Reset failure counter.")
 
@@ -218,16 +286,25 @@ class RateLimiter:
 
     def _enforce_window_limit(
         self,
-        email_hash: Optional[bytes],
+        *,
+        context: AttemptContext,
         max_attempts: int,
         window_seconds: int,
         scope: str,
+        use_attempt_key: bool = False,
+        use_email_hash: bool = False,
+        use_normalized_hash: bool = False,
     ) -> None:
         if max_attempts <= 0 or window_seconds <= 0:
             return
 
         window_start = datetime.now() - timedelta(seconds=window_seconds)
-        attempts = self.db.get_failed_attempts_since(window_start, email_hash=email_hash)
+        attempts = self.db.get_failed_attempts_since(
+            window_start,
+            email_hash=context.email_hash if use_email_hash else None,
+            attempt_key=context.attempt_key if use_attempt_key else None,
+            normalized_email_hash=context.normalized_email_hash if use_normalized_hash else None,
+        )
 
         if len(attempts) < max_attempts:
             return
@@ -247,6 +324,77 @@ class RateLimiter:
             message = "Too many failed attempts for this account. Please wait before trying again."
 
         raise RateLimitError(message, retry_after=retry_after)
+
+    def record_device_attempt(self, success: bool, context: AttemptContext) -> None:
+        """Persist per-device counters for CAPTCHA/backoff enforcement."""
+
+        if not context.attempt_key:
+            return
+
+        metadata: Dict[str, Any] = {}
+        if context.ip_address:
+            metadata["ip_address"] = context.ip_address
+        if context.device_fingerprint:
+            metadata["device_fingerprint"] = context.device_fingerprint
+        if context.user_agent:
+            metadata["user_agent"] = context.user_agent
+
+        self.db.update_device_attempt_counter(
+            context.attempt_key,
+            success=success,
+            metadata=metadata,
+            captcha_threshold=self.config.captcha_threshold,
+            captcha_cooldown_seconds=self.config.captcha_cooldown_seconds,
+        )
+
+    @staticmethod
+    def _normalize_email_identifier(email: Optional[str]) -> Optional[str]:
+        if not email:
+            return None
+
+        email_clean = email.strip().lower()
+        if "@" not in email_clean:
+            return email_clean
+
+        local, domain = email_clean.split("@", 1)
+        if "+" in local:
+            local = local.split("+", 1)[0]
+
+        return f"{local}@{domain}" if local else email_clean
+
+    def _hash_normalized_email(self, email: Optional[str]) -> Optional[bytes]:
+        normalized = self._normalize_email_identifier(email)
+        if not normalized:
+            return None
+
+        pepper = get_email_pepper()
+        digest = hashlib.blake2b(normalized.encode("utf-8"), key=pepper, digest_size=32)
+        return digest.digest()
+
+    @staticmethod
+    def _derive_attempt_key(
+        base_hash: Optional[bytes],
+        ip_address: Optional[str],
+        device_fingerprint: Optional[str],
+        user_agent: Optional[str],
+    ) -> Optional[bytes]:
+        components = []
+
+        if base_hash:
+            components.append(base_hash)
+        for value in (ip_address, device_fingerprint, user_agent):
+            if value:
+                components.append(value.encode("utf-8"))
+
+        if not components:
+            return None
+
+        digest = hashlib.blake2b(digest_size=32)
+        for component in components:
+            digest.update(len(component).to_bytes(2, "big"))
+            digest.update(component)
+
+        return digest.digest()
 
     def is_locked(self, user_id: int) -> bool:
         """
@@ -272,8 +420,7 @@ class RateLimiter:
         self.db.unlock_account(user_id)
 
         # Clear backoff timer
-        if user_id in self._last_attempt_time:
-            del self._last_attempt_time[user_id]
+        self._clear_last_attempt_time(user_id)
 
         logger.info(f"Manually unlocked account {user_id}")
 
@@ -310,12 +457,27 @@ class RateLimiter:
             status['retry_after_seconds'] = max(0.0, retry_after)
         elif user.failed_attempts > 0 and self.config.exponential_backoff:
             required_delay = self._calculate_backoff_delay(user.failed_attempts)
-            last_attempt = self._last_attempt_time.get(user_id, 0)
+            last_attempt = self._get_last_attempt_time(user_id)
             time_since_last = time.time() - last_attempt
             retry_after = max(0.0, required_delay - time_since_last)
             status['retry_after_seconds'] = retry_after
 
         return status
+
+    def _get_last_attempt_time(self, user_id: int) -> float:
+        """Retrieve the last attempt timestamp for a user."""
+        with self._lock:
+            return self._last_attempt_time.get(user_id, 0.0)
+
+    def _set_last_attempt_time(self, user_id: int, timestamp: float) -> None:
+        """Store the last attempt timestamp for a user."""
+        with self._lock:
+            self._last_attempt_time[user_id] = timestamp
+
+    def _clear_last_attempt_time(self, user_id: int) -> None:
+        """Remove any cached attempt timestamp for a user."""
+        with self._lock:
+            self._last_attempt_time.pop(user_id, None)
 
     def get_remaining_attempts(self, user_id: int) -> int:
         """

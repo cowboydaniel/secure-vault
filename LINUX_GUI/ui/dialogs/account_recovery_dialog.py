@@ -21,6 +21,7 @@ from auth_manager import AuthManager
 from pin_manager import PINValidationError
 from secure_memory import secure_wipe
 from user_manager import UserManager, ValidationError
+from LINUX_GUI.utils import safe_set_text
 
 
 logger = logging.getLogger(__name__)
@@ -198,7 +199,7 @@ class AccountRecoveryDialog(QDialog):
                 self._wipe_secret(secret)
 
     def _show_error(self, message: str) -> None:
-        self.error_label.setText(message)
+        safe_set_text(self.error_label, message)
         self.error_label.setVisible(True)
 
     def _log_failure(self, email: str, reason: str) -> None:
