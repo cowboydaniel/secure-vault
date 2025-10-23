@@ -7,9 +7,18 @@ import time
 import numpy as np
 from unittest.mock import patch, MagicMock
 from entropy_monitor import (
-    EntropyMonitor, EntropySource, EntropyHealthStatus, EntropyMetrics,
-    entropy_monitor, start_monitoring, stop_monitoring
+    EntropyMonitor,
+    EntropySource,
+    EntropyHealthStatus,
+    EntropyMetrics,
+    EntropySample,
+    entropy_monitor,
+    get_entropy_metrics,
+    get_health_status,
+    start_monitoring,
+    stop_monitoring,
 )
+from crypto_utils import secure_random_bytes
 
 class TestEntropyMonitor(unittest.TestCase):
     """Test cases for the EntropyMonitor class."""
@@ -59,6 +68,11 @@ class TestEntropyMonitor(unittest.TestCase):
         # Verify metrics were calculated
         self.assertGreater(sample1.metrics.min_entropy, 0)
         self.assertGreater(sample1.metrics.shannon_entropy, 0)
+
+        # Directly pass secure_random_bytes output to ensure it is accepted as-is
+        direct_bytes = secure_random_bytes(512)
+        direct_sample = self.monitor.collect_sample(EntropySource.OS_URANDOM, direct_bytes)
+        self.assertEqual(direct_sample.data, direct_bytes)
         
     def test_metrics_calculation(self):
         """Test entropy metrics calculation."""

@@ -422,12 +422,12 @@ class FileBasedHSMSession(HSMSession):
         if len(iv) < 16 + 16:  # IV (16) + tag (16)
             raise HSMOperationError("Invalid IV/tag length")
             
-        iv = iv[:16]
+        iv_bytes = iv[:16]
         tag = iv[16:32]
-        
+
         try:
             # Create cipher
-            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv_bytes)
             
             # Add AAD if provided
             if aad:
