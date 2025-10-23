@@ -75,6 +75,7 @@ class StorageConfig:
     EXTRA_SAFE_DIRECTORIES_ENV = "SECURE_VAULT_EXTRA_SAFE_DIRS"
     MAX_FILE_SIZE_GB = 100        # Maximum file size for processing
     COMPRESSION_ENABLED = True    # Pre-encryption compression
+    SCHEMA_CONFIG_FILE = "storage_schema.json"  # Optional schema validation configuration
 
     @classmethod
     def get_allowlisted_directories(cls) -> List[str]:
