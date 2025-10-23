@@ -69,6 +69,16 @@ class AuthenticationTestCase(unittest.TestCase):
         with self.assertRaises(PINValidationError):
             manager.validate_pin_format("123456")
 
+    def test_pin_pattern_validation(self) -> None:
+        """Pattern-based PINs should be rejected with validation errors."""
+
+        manager = PINManager()
+        invalid_pins = ["010190", "20240101", "555120"]
+
+        for candidate in invalid_pins:
+            with self.assertRaises(PINValidationError):
+                manager.validate_pin_format(candidate)
+
     def test_end_to_end_auth_flow(self) -> None:
         """Creating a user should allow successful PIN authentication."""
 
