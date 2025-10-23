@@ -11,6 +11,7 @@ Security Notes:
 - Database file has restrictive permissions (600)
 """
 
+import atexit
 import sqlite3
 import os
 import logging
@@ -113,6 +114,8 @@ class AuthDatabase:
 
     INSTANCE_SECRET_KEY = "instance_secret"
 
+    _registered_cleanup_paths = set()
+
     def __init__(self, db_path: Optional[str] = None):
         """
         Initialize authentication database.
@@ -126,6 +129,7 @@ class AuthDatabase:
             db_path = os.path.join(config_dir, "users.db")
 
         self.db_path = db_path
+        self._db_path = Path(db_path)
         self.connection: Optional[sqlite3.Connection] = None
 
         self._instance_guard = InstanceGuard(self.db_path)
@@ -139,6 +143,7 @@ class AuthDatabase:
         # Set restrictive file permissions
         self._set_secure_permissions()
         self._instance_guard.verify_environment(self)
+        self._register_shutdown_cleanup()
 
     @staticmethod
     def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
@@ -448,6 +453,8 @@ class AuthDatabase:
         )
         conn.row_factory = sqlite3.Row  # Allow dict-like access
         conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
+        conn.execute("PRAGMA journal_mode=TRUNCATE")
+        conn.execute("PRAGMA secure_delete=ON")
         return conn
 
     def close(self):
@@ -455,6 +462,54 @@ class AuthDatabase:
         if self.connection:
             self.connection.close()
             self.connection = None
+        self.cleanup()
+
+    def cleanup(self) -> None:
+        """Remove residual SQLite journal and backup files."""
+        self._cleanup_residual_files_for_path(self._db_path.resolve())
+
+    def _register_shutdown_cleanup(self) -> None:
+        """Ensure residual files are purged during interpreter shutdown."""
+        resolved_path = self._db_path.resolve()
+        path_key = str(resolved_path)
+        if path_key in self._registered_cleanup_paths:
+            return
+        self._registered_cleanup_paths.add(path_key)
+        atexit.register(self._cleanup_residual_files_for_path, resolved_path)
+
+    @staticmethod
+    def _cleanup_residual_files_for_path(db_path: Path) -> None:
+        parent = db_path.parent
+        if not parent.exists():
+            return
+
+        residual_suffixes = ("-wal", "-shm")
+        backup_patterns = (
+            f"{db_path.name}.bak",
+            f"{db_path.name}.backup",
+            f"{db_path.stem}.bak",
+            f"{db_path.stem}.backup",
+        )
+
+        for suffix in residual_suffixes:
+            candidate = db_path.with_name(db_path.name + suffix)
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                pass
+
+        for pattern in backup_patterns:
+            for candidate in parent.glob(pattern):
+                if candidate == db_path:
+                    continue
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    pass
 
     # ==================== User Management ====================
 
