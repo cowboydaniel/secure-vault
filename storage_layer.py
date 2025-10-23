@@ -30,6 +30,67 @@ from constants import EncryptionMetadata
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_CONFIG_FILENAME = StorageConfig.SCHEMA_CONFIG_FILE
+
+FILE_METADATA_TABLE = "file_metadata"
+FILE_METADATA_COLUMNS = (
+    "file_id",
+    "original_name",
+    "storage_format",
+    "compression_type",
+    "encryption_layers",
+    "total_size",
+    "storage_paths",
+    "checksum",
+    "timestamp",
+    "classification_level",
+    "access_count",
+    "last_accessed",
+)
+
+ACCESS_LOG_TABLE = "access_log"
+ACCESS_LOG_COLUMNS = (
+    "id",
+    "file_id",
+    "operation",
+    "timestamp",
+    "success",
+    "details",
+)
+
+SUPPORTED_SCHEMA_IDENTIFIERS = {
+    FILE_METADATA_TABLE: set(FILE_METADATA_COLUMNS),
+    ACCESS_LOG_TABLE: set(ACCESS_LOG_COLUMNS),
+}
+
+FILE_METADATA_CREATE_SQL = f"""
+                CREATE TABLE IF NOT EXISTS {FILE_METADATA_TABLE} (
+                    file_id TEXT PRIMARY KEY,
+                    original_name TEXT NOT NULL,
+                    storage_format TEXT NOT NULL,
+                    compression_type TEXT NOT NULL,
+                    encryption_layers TEXT NOT NULL,
+                    total_size INTEGER NOT NULL,
+                    storage_paths TEXT NOT NULL,
+                    checksum BLOB NOT NULL,
+                    timestamp REAL NOT NULL,
+                    classification_level INTEGER NOT NULL,
+                    access_count INTEGER DEFAULT 0,
+                    last_accessed REAL
+                )
+            """
+
+ACCESS_LOG_CREATE_SQL = f"""
+                CREATE TABLE IF NOT EXISTS {ACCESS_LOG_TABLE} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    details TEXT
+                )
+            """
+
 class StorageFormat(Enum):
     """Storage format types"""
     ENCRYPTED_CONTAINER = "encrypted_container"
@@ -122,38 +183,78 @@ class SecureStorageEngine:
             with open(marker_file, 'w') as f:
                 f.write(f"Secure Vault Storage\nCreated: {time.time()}\n")
             marker_file.chmod(0o600)
-    
+
+    def _validate_schema_config(self):
+        """Validate optional schema configuration file"""
+        config_path = self.storage_dir / SCHEMA_CONFIG_FILENAME
+
+        if not config_path.exists():
+            return
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as config_file:
+                config_data = json.load(config_file)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid schema configuration JSON: {exc}") from exc
+
+        tables = config_data.get('tables')
+        if tables is None:
+            raise ValueError("Schema configuration must include a 'tables' mapping.")
+        if not isinstance(tables, dict):
+            raise ValueError("Schema configuration 'tables' entry must be a mapping.")
+
+        supported_tables = ', '.join(sorted(SUPPORTED_SCHEMA_IDENTIFIERS))
+
+        for identifier, table_config in tables.items():
+            if identifier not in SUPPORTED_SCHEMA_IDENTIFIERS:
+                raise ValueError(
+                    f"Unsupported table identifier '{identifier}' in schema configuration. "
+                    f"Supported tables: {supported_tables}."
+                )
+
+            if not isinstance(table_config, dict):
+                raise ValueError(
+                    f"Schema configuration for table '{identifier}' must be a mapping of options."
+                )
+
+            provided_name = table_config.get('name')
+            if provided_name is not None and provided_name != identifier:
+                raise ValueError(
+                    f"Unsupported table name '{provided_name}' for identifier '{identifier}'. "
+                    f"Only '{identifier}' is supported."
+                )
+
+            columns = table_config.get('columns')
+            if columns is None:
+                continue
+
+            if not isinstance(columns, list):
+                raise ValueError(
+                    f"Columns for table '{identifier}' must be provided as a list of strings."
+                )
+
+            invalid_columns = [
+                column for column in columns
+                if column not in SUPPORTED_SCHEMA_IDENTIFIERS[identifier]
+            ]
+
+            if invalid_columns:
+                supported_columns = ', '.join(sorted(SUPPORTED_SCHEMA_IDENTIFIERS[identifier]))
+                invalid_list = ', '.join(invalid_columns)
+                raise ValueError(
+                    f"Unsupported column identifiers for table '{identifier}': {invalid_list}. "
+                    f"Supported columns: {supported_columns}."
+                )
+
     def _initialize_metadata_db(self):
         """Initialize SQLite database for metadata"""
+        self._validate_schema_config()
+
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS file_metadata (
-                    file_id TEXT PRIMARY KEY,
-                    original_name TEXT NOT NULL,
-                    storage_format TEXT NOT NULL,
-                    compression_type TEXT NOT NULL,
-                    encryption_layers TEXT NOT NULL,
-                    total_size INTEGER NOT NULL,
-                    storage_paths TEXT NOT NULL,
-                    checksum BLOB NOT NULL,
-                    timestamp REAL NOT NULL,
-                    classification_level INTEGER NOT NULL,
-                    access_count INTEGER DEFAULT 0,
-                    last_accessed REAL
-                )
-            """)
-            
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS access_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_id TEXT NOT NULL,
-                    operation TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    success BOOLEAN NOT NULL,
-                    details TEXT
-                )
-            """)
-            
+            conn.execute(FILE_METADATA_CREATE_SQL)
+
+            conn.execute(ACCESS_LOG_CREATE_SQL)
+
             conn.commit()
     
     def store_encrypted_data(self, 
@@ -709,10 +810,10 @@ class SecureStorageEngine:
     def _save_metadata(self, metadata: StorageMetadata):
         """Save metadata to database"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO file_metadata
-                (file_id, original_name, storage_format, compression_type, 
-                 encryption_layers, total_size, storage_paths, checksum, 
+            conn.execute(f"""
+                INSERT OR REPLACE INTO {FILE_METADATA_TABLE}
+                (file_id, original_name, storage_format, compression_type,
+                 encryption_layers, total_size, storage_paths, checksum,
                  timestamp, classification_level, access_count, last_accessed)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -734,8 +835,8 @@ class SecureStorageEngine:
     def _load_metadata(self, file_id: str) -> Optional[StorageMetadata]:
         """Load metadata from database"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            cursor = conn.execute("""
-                SELECT * FROM file_metadata WHERE file_id = ?
+            cursor = conn.execute(f"""
+                SELECT * FROM {FILE_METADATA_TABLE} WHERE file_id = ?
             """, (file_id,))
             
             row = cursor.fetchone()
@@ -760,8 +861,8 @@ class SecureStorageEngine:
     def _update_access_stats(self, file_id: str):
         """Update file access statistics"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                UPDATE file_metadata 
+            conn.execute(f"""
+                UPDATE {FILE_METADATA_TABLE}
                 SET access_count = access_count + 1, last_accessed = ?
                 WHERE file_id = ?
             """, (time.time(), file_id))
@@ -770,8 +871,8 @@ class SecureStorageEngine:
     def _log_access(self, file_id: str, operation: str, success: bool, details: str = ""):
         """Log access attempt"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            conn.execute("""
-                INSERT INTO access_log (file_id, operation, timestamp, success, details)
+            conn.execute(f"""
+                INSERT INTO {ACCESS_LOG_TABLE} (file_id, operation, timestamp, success, details)
                 VALUES (?, ?, ?, ?, ?)
             """, (file_id, operation, time.time(), success, details))
             conn.commit()
@@ -779,7 +880,7 @@ class SecureStorageEngine:
     def list_stored_files(self) -> List[StorageMetadata]:
         """List all stored files"""
         with sqlite3.connect(self.metadata_db_path) as conn:
-            cursor = conn.execute("SELECT * FROM file_metadata ORDER BY timestamp DESC")
+            cursor = conn.execute(f"SELECT * FROM {FILE_METADATA_TABLE} ORDER BY timestamp DESC")
             
             files = []
             for row in cursor.fetchall():
@@ -820,8 +921,8 @@ class SecureStorageEngine:
             
             # Remove from database
             with sqlite3.connect(self.metadata_db_path) as conn:
-                conn.execute("DELETE FROM file_metadata WHERE file_id = ?", (file_id,))
-                conn.execute("DELETE FROM access_log WHERE file_id = ?", (file_id,))
+                conn.execute(f"DELETE FROM {FILE_METADATA_TABLE} WHERE file_id = ?", (file_id,))
+                conn.execute(f"DELETE FROM {ACCESS_LOG_TABLE} WHERE file_id = ?", (file_id,))
                 conn.commit()
             
             # Log deletion
@@ -839,9 +940,9 @@ class SecureStorageEngine:
         """Get storage engine statistics"""
         with sqlite3.connect(self.metadata_db_path) as conn:
             # Count files by format
-            cursor = conn.execute("""
+            cursor = conn.execute(f"""
                 SELECT storage_format, COUNT(*), SUM(total_size)
-                FROM file_metadata
+                FROM {FILE_METADATA_TABLE}
                 GROUP BY storage_format
             """)
             
@@ -858,8 +959,8 @@ class SecureStorageEngine:
                 total_size += row[2] or 0
             
             # Recent activity
-            cursor = conn.execute("""
-                SELECT COUNT(*) FROM access_log 
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) FROM {ACCESS_LOG_TABLE}
                 WHERE timestamp > ?
             """, (time.time() - 86400,))  # Last 24 hours
             
