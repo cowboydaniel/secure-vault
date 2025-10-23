@@ -29,7 +29,7 @@ except ImportError:
     logging.warning("argon2-cffi not available")
 
 from auth_database import AuthDatabase, User
-from pin_manager import PINManager, PINValidationError, Argon2Params
+from pin_manager import PINManager, PINValidationError, Argon2Params, PINPolicy
 from secure_memory import secure_wipe
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,8 @@ class UserManager:
     def __init__(
         self,
         db: AuthDatabase,
-        password_policy: Optional[PasswordPolicy] = None
+        password_policy: Optional[PasswordPolicy] = None,
+        pin_policy: Optional[PINPolicy] = None
     ):
         """
         Initialize user manager.
@@ -76,10 +77,11 @@ class UserManager:
         Args:
             db: Authentication database
             password_policy: Password policy (uses defaults if None)
+            pin_policy: PIN complexity policy (uses defaults if None)
         """
         self.db = db
         self.policy = password_policy or PasswordPolicy()
-        self.pin_manager = PINManager()
+        self.pin_manager = PINManager(pin_policy=pin_policy)
 
     def create_user(
         self,
@@ -103,7 +105,7 @@ class UserManager:
         Args:
             email: User's email address
             password: User's password
-            pin: User's PIN (6-8 digits)
+            pin: User's PIN (minimum 8 characters)
 
         Returns:
             user_id: New user's ID
