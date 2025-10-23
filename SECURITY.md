@@ -79,7 +79,7 @@ Critical operations implement constant-time algorithms to prevent timing attacks
 
 ### Custom Cipher Warning
 
-  **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
+Â  **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
 
 - **NOT production-ready** for critical data
 - **NOT peer-reviewed** by professional cryptographers
@@ -179,6 +179,16 @@ The security of the OTP layer depends entirely on:
    - Minimize attack surface
    - Use secure communication channels
    - Follow principle of least privilege
+
+### For Operators
+
+1. **Configuration Baseline**
+   - Apply the permissions and environment settings defined in [SECURITY_CONFIG.md](SECURITY_CONFIG.md).
+   - Retain signed copies of the hardening checklist for each deployment.
+
+2. **Runbook Compliance**
+   - Execute deployments through the [Deployment Runbook](DEPLOYMENT_RUNBOOK.md).
+   - Require operators to acknowledge the hardening checklist before promoting changes to production.
 
 ### For Developers
 
