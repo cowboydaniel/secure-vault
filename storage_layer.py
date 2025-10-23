@@ -18,6 +18,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from file_utils import safe_file_open
+
 from crypto_utils import (
     secure_random_bytes,
     compute_sha3_512,
@@ -119,7 +121,7 @@ class SecureStorageEngine:
         # Create .secure_vault marker
         marker_file = self.storage_dir / ".secure_vault"
         if not marker_file.exists():
-            with open(marker_file, 'w') as f:
+            with safe_file_open(marker_file, 'w') as f:
                 f.write(f"Secure Vault Storage\nCreated: {time.time()}\n")
             marker_file.chmod(0o600)
     
@@ -255,12 +257,12 @@ class SecureStorageEngine:
         salt_file = self.storage_dir / ".system_salt"
         
         if salt_file.exists():
-            with open(salt_file, 'rb') as f:
+            with safe_file_open(salt_file, 'rb') as f:
                 return f.read()
         else:
             # Generate new system salt
             salt = secure_random_bytes(SECURITY_LEVEL_BYTES)
-            with open(salt_file, 'wb') as f:
+            with safe_file_open(salt_file, 'wb') as f:
                 f.write(salt)
             salt_file.chmod(0o600)
             return salt
@@ -405,7 +407,7 @@ class SecureStorageEngine:
         """Write container to storage locations"""
         if storage_format == StorageFormat.ENCRYPTED_CONTAINER:
             # Write single container
-            with open(storage_paths[0], 'wb') as f:
+            with safe_file_open(storage_paths[0], 'wb') as f:
                 f.write(container_data)
             os.chmod(storage_paths[0], 0o600)
             
@@ -421,7 +423,7 @@ class SecureStorageEngine:
                 else:
                     fragment = container_data[start_offset:start_offset + fragment_size]
                 
-                with open(path, 'wb') as f:
+                with safe_file_open(path, 'wb') as f:
                     f.write(fragment)
                 os.chmod(path, 0o600)
                 
@@ -478,7 +480,7 @@ class SecureStorageEngine:
                 if i < len(hidden_data):
                     hidden_data[i] ^= byte
             
-            with open(output_path, 'wb') as f:
+            with safe_file_open(output_path, 'wb') as f:
                 f.write(hidden_data)
     
     def retrieve_encrypted_data(self, file_id: str) -> Tuple[bytes, StorageMetadata]:
@@ -524,14 +526,14 @@ class SecureStorageEngine:
         """Read container from storage paths"""
         if metadata.storage_format == StorageFormat.ENCRYPTED_CONTAINER:
             # Read single container
-            with open(metadata.storage_paths[0], 'rb') as f:
+            with safe_file_open(metadata.storage_paths[0], 'rb') as f:
                 return f.read()
                 
         elif metadata.storage_format == StorageFormat.DISTRIBUTED_SHARES:
             # Reconstruct from fragments
             fragments = []
             for path in metadata.storage_paths:
-                with open(path, 'rb') as f:
+                with safe_file_open(path, 'rb') as f:
                     fragments.append(f.read())
             return b''.join(fragments)
             
@@ -549,7 +551,9 @@ class SecureStorageEngine:
             import numpy as np
             
             # Load image
-            image = Image.open(container_path)
+            with safe_file_open(container_path, 'rb') as image_file:
+                image = Image.open(image_file)
+                image.load()
             image_array = np.array(image)
             flat_array = image_array.flatten()
             
@@ -572,7 +576,7 @@ class SecureStorageEngine:
         except ImportError:
             logger.warning("PIL not available, using simple steganographic extraction")
             # Fallback: simple XOR extraction
-            with open(container_path, 'rb') as f:
+            with safe_file_open(container_path, 'rb') as f:
                 hidden_data = f.read()
             
             # This is a simplified extraction - in practice you'd need

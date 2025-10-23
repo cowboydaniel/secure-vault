@@ -15,10 +15,13 @@ with a focus on security properties and edge cases.
 import unittest
 import os
 import time
+import tempfile
+from pathlib import Path
 from typing import List, Tuple
 import numpy as np
 from custom_cipher import Cipher512
 from crypto_utils import secure_random_bytes
+from file_utils import SymlinkOpenError, safe_file_open
 
 class TestCustomCipherSecurity(unittest.TestCase):
     """Security tests for the custom 512-bit cipher"""
@@ -186,6 +189,36 @@ class TestCustomCipherCornerCases(unittest.TestCase):
         for i in range(len(blocks)):
             for j in range(i + 1, len(blocks)):
                 self.assertNotEqual(blocks[i], blocks[j])
+
+
+class TestSafeFileOpen(unittest.TestCase):
+    """Regression tests for secure file handling helpers."""
+
+    def test_symlink_rejected_for_read(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("classified data")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "r"):
+                    pass
+
+    def test_symlink_rejected_for_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir)
+            target = base_path / "target.txt"
+            target.write_text("original")
+
+            symlink_path = base_path / "link.txt"
+            symlink_path.symlink_to(target)
+
+            with self.assertRaises(SymlinkOpenError):
+                with safe_file_open(symlink_path, "w"):
+                    pass
 
 
 if __name__ == "__main__":
