@@ -107,7 +107,7 @@ Critical operations implement constant-time algorithms to prevent timing attacks
 
 ### Custom Cipher Warning
 
-  **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
+- **IMPORTANT**: The custom 512-bit cipher is an **experimental research implementation**:
 
 - **NOT production-ready** for critical data
 - **NOT peer-reviewed** by professional cryptographers
@@ -290,6 +290,12 @@ Before any release:
 - [ ] Changelog includes security notes
 - [ ] Version numbers updated appropriately
 - [ ] Release notes highlight security fixes
+
+## Software Bill of Materials
+
+- Run `make sbom` to generate `build/sbom.xml` using the `cyclonedx-py` tool.
+- The release pipeline copies the SBOM to `release_artifacts/sbom.xml` via `make release-artifacts` so it can be attached to every release bundle.
+- Dependency refresh operations (`make deps-update` or `install_dependencies.sh`) regenerate the SBOM automatically to keep the artifact current.
 
 ## Cryptographic Algorithm Summary
 
