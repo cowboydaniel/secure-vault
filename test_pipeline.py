@@ -3,11 +3,14 @@ Comprehensive Integration Test Suite for Multi-Layer Pipeline
 Tests for the complete 5-layer encryption system integration
 """
 
-import pytest
 import os
 import tempfile
 import time
 from pathlib import Path
+
+import pytest
+
+import pipeline as pipeline_module
 
 from pipeline import (
     MultiLayerPipeline,
@@ -17,8 +20,8 @@ from pipeline import (
     OperationStatus
 )
 from ida_layer import IDAConfiguration
-from otp_layer import OTPConfiguration
-from constants import LayerType
+from otp_layer import OTPConfiguration, OTPEncryptionResult
+from constants import LayerType, GF512_IRREDUCIBLE_POLYNOMIAL
 from config import ClassificationLevel
 
 
@@ -38,7 +41,11 @@ class TestPipelineInitialization:
     def test_custom_configuration(self):
         """Test pipeline initialization with custom configuration"""
         config = PipelineConfiguration(
-            ida_config=IDAConfiguration(total_shares=7, threshold=4),
+            ida_config=IDAConfiguration(
+                total_shares=7,
+                threshold=4,
+                field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+            ),
             otp_config=OTPConfiguration(),
             enable_compression=True,
             classification_level=ClassificationLevel.TOP_SECRET
@@ -128,6 +135,93 @@ class TestPipelineFileEncryption:
         finally:
             os.unlink(temp_file)
 
+    def test_encrypt_large_file_streaming(self, tmp_path, monkeypatch):
+        """Large files should be read in multiple streaming chunks."""
+        chunk_size = 128 * 1024
+        large_file = tmp_path / "large_input.bin"
+        large_file.write_bytes(os.urandom(chunk_size * 3 + 17))
+
+        config = PipelineConfiguration(
+            ida_config=IDAConfiguration(
+                total_shares=5,
+                threshold=3,
+                field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+            ),
+            otp_config=OTPConfiguration(),
+            chunk_size=chunk_size,
+        )
+        pipeline = MultiLayerPipeline(config)
+
+        def fake_layer_2(self, shares, file_id, progress_callback=None):
+            return [
+                OTPEncryptionResult(
+                    ciphertext=share.share_data,
+                    key_material_used=len(share.share_data),
+                    entropy_estimate=8.0,
+                    key_id=f"dummy_key_{idx}",
+                    timestamp=time.time(),
+                    iv=b"\x00" * 16,
+                )
+                for idx, share in enumerate(shares)
+            ]
+
+        def fake_layer_3(self, otp_results, file_id, progress_callback=None):
+            return [{'share_index': idx} for idx, _ in enumerate(otp_results)]
+
+        def fake_layer_4(self, otp_results, mlkem_contexts, file_id, progress_callback=None):
+            encrypted_shares = [
+                {
+                    'share_index': idx,
+                    'encrypted_data': result.ciphertext,
+                    'original_size': len(result.ciphertext),
+                    'encrypted_size': len(result.ciphertext),
+                }
+                for idx, result in enumerate(otp_results)
+            ]
+            total_length = sum(len(result.ciphertext) for result in otp_results)
+            return LayerResult(
+                layer_type=LayerType.CUSTOM_CIPHER,
+                layer_name="Stub Cipher",
+                input_size=total_length,
+                output_size=total_length,
+                processing_time=0.0,
+                status=OperationStatus.COMPLETED,
+                metadata={'encrypted_shares': encrypted_shares},
+            )
+
+        def fake_layer_5(self, cipher_metadata, file_id, progress_callback=None, original_file_path=None):
+            return LayerResult(
+                layer_type=LayerType.STORAGE_ENCRYPTION,
+                layer_name="Stub Storage",
+                input_size=0,
+                output_size=0,
+                processing_time=0.0,
+                status=OperationStatus.COMPLETED,
+                metadata={'storage_paths': []},
+            )
+
+        monkeypatch.setattr(pipeline_module.MultiLayerPipeline, "_execute_layer_2", fake_layer_2)
+        monkeypatch.setattr(pipeline_module.MultiLayerPipeline, "_execute_layer_3", fake_layer_3)
+        monkeypatch.setattr(pipeline_module.MultiLayerPipeline, "_execute_layer_4", fake_layer_4)
+        monkeypatch.setattr(pipeline_module.MultiLayerPipeline, "_execute_layer_5", fake_layer_5)
+
+        read_sizes = []
+        original_iter = pipeline_module.iter_file_chunks
+        target_path = os.path.abspath(str(large_file))
+
+        def tracking_iter(path, configured_chunk_size):
+            for chunk in original_iter(path, configured_chunk_size):
+                if os.path.abspath(path) == target_path:
+                    read_sizes.append(len(chunk))
+                yield chunk
+
+        monkeypatch.setattr(pipeline_module, "iter_file_chunks", tracking_iter)
+
+        pipeline.encrypt_file(str(large_file))
+
+        assert len(read_sizes) > 1
+        assert max(read_sizes) <= chunk_size
+
     def test_encrypt_with_progress_callback(self):
         """Test encryption with progress callback"""
         progress_updates = []
@@ -158,6 +252,49 @@ class TestPipelineFileEncryption:
 
         with pytest.raises(FileNotFoundError):
             pipeline.encrypt_file("/nonexistent/file/path.txt")
+
+    def test_decrypt_large_file_streaming(self, tmp_path, monkeypatch):
+        """Writing decrypted output honors the configured chunk size."""
+        chunk_size = 128 * 1024
+        output_file = tmp_path / "large_roundtrip.out"
+        decrypted_bytes = os.urandom(chunk_size * 4 + 31)
+
+        write_sizes = []
+        original_write = pipeline_module.write_chunks_to_file
+        target_output = os.path.abspath(str(output_file))
+
+        def tracking_write(path, data, configured_chunk_size):
+            if os.path.abspath(path) == target_output:
+                if isinstance(data, (bytes, bytearray, memoryview)):
+                    total_length = len(data)
+                    for start in range(0, total_length, configured_chunk_size):
+                        write_sizes.append(
+                            min(configured_chunk_size, total_length - start)
+                        )
+                else:
+                    buffered_chunks = []
+                    for chunk in data:
+                        chunk_bytes = bytes(chunk)
+                        buffered_chunks.append(chunk_bytes)
+                        chunk_length = len(chunk_bytes)
+                        for start in range(0, chunk_length, configured_chunk_size):
+                            write_sizes.append(
+                                min(configured_chunk_size, chunk_length - start)
+                            )
+                    return original_write(path, buffered_chunks, configured_chunk_size)
+                return original_write(path, data, configured_chunk_size)
+
+            return original_write(path, data, configured_chunk_size)
+
+        monkeypatch.setattr(pipeline_module, "write_chunks_to_file", tracking_write)
+
+        pipeline_module.write_chunks_to_file(
+            str(output_file), decrypted_bytes, chunk_size
+        )
+
+        assert output_file.exists()
+        assert len(write_sizes) > 1
+        assert max(write_sizes) <= chunk_size
 
 
 class TestPipelineLayers:
@@ -431,7 +568,11 @@ class TestPipelineShareManagement:
 
         try:
             config = PipelineConfiguration(
-                ida_config=IDAConfiguration(total_shares=5, threshold=3),
+                ida_config=IDAConfiguration(
+                    total_shares=5,
+                    threshold=3,
+                    field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+                ),
                 otp_config=OTPConfiguration()
             )
             pipeline = MultiLayerPipeline(config)
@@ -451,7 +592,11 @@ class TestPipelineShareManagement:
 
         try:
             config = PipelineConfiguration(
-                ida_config=IDAConfiguration(total_shares=7, threshold=4),
+                ida_config=IDAConfiguration(
+                    total_shares=7,
+                    threshold=4,
+                    field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+                ),
                 otp_config=OTPConfiguration()
             )
             pipeline = MultiLayerPipeline(config)
@@ -588,7 +733,11 @@ class TestPipelineIntegration:
         try:
             # Create pipeline with custom configuration
             config = PipelineConfiguration(
-                ida_config=IDAConfiguration(total_shares=5, threshold=3),
+                ida_config=IDAConfiguration(
+                    total_shares=5,
+                    threshold=3,
+                    field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+                ),
                 otp_config=OTPConfiguration(),
                 enable_compression=True,
                 classification_level=ClassificationLevel.SECRET

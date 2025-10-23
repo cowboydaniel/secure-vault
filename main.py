@@ -30,6 +30,7 @@ from config import default_config, LOGGING_CONFIG, VERSION, BUILD_DATE
 from entropy_monitor import start_monitoring, stop_monitoring, get_health_status, EntropySource
 from entropy_pool import entropy_accumulator, get_random_bytes
 from pipeline import MultiLayerPipeline, PipelineConfiguration
+from decrypt_command import write_decrypted_output
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
@@ -418,15 +419,11 @@ def decrypt_file_interactive():
                 try:
                     # Write in chunks to avoid holding everything in memory
                     chunk_size = 64 * 1024  # 64KB chunks
-                    with open(output_path, 'wb') as f:
-                        for i in range(0, len(decrypted_data), chunk_size):
-                            chunk = decrypted_data[i:i + chunk_size]
-                            f.write(chunk)
-                            # Securely erase the chunk from memory
-                            if hasattr(chunk, 'tobytes'):
-                                chunk = chunk.tobytes()
-                            if isinstance(chunk, (bytes, bytearray)):
-                                secure_alloc(len(chunk)).zero()
+                    write_decrypted_output(
+                        output_path,
+                        decrypted_data,
+                        chunk_size,
+                    )
                 finally:
                     # Ensure decrypted data is securely erased
                     if hasattr(decrypted_data, 'tobytes'):

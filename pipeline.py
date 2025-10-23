@@ -16,7 +16,7 @@ unbreakability provided by the OTP layer.
 import os
 import time
 import threading
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, Iterable, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
@@ -33,10 +33,64 @@ from crypto_utils import (
     derive_key_hkdf_sha3_512,
     SecureBytes
 )
-from constants import EncryptionMetadata, LayerType, SecurityLevel
+from constants import (
+    EncryptionMetadata,
+    LayerType,
+    SecurityLevel,
+    GF512_IRREDUCIBLE_POLYNOMIAL,
+)
 from config import SECURITY_LEVEL_BYTES, ClassificationLevel
 
 logger = logging.getLogger(__name__)
+
+
+def iter_file_chunks(file_path: str, chunk_size: int) -> Iterable[bytes]:
+    """Yield chunks from ``file_path`` using ``chunk_size`` bytes at a time."""
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    with open(file_path, 'rb') as file_obj:
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+
+def read_file_chunked(file_path: str, chunk_size: int) -> bytes:
+    """Read ``file_path`` using streaming chunks and return the concatenated data."""
+
+    buffer = bytearray()
+    for chunk in iter_file_chunks(file_path, chunk_size):
+        buffer.extend(chunk)
+    return bytes(buffer)
+
+
+def write_chunks_to_file(
+    output_path: str,
+    data: Union[bytes, bytearray, memoryview, Iterable[bytes]],
+    chunk_size: int,
+) -> None:
+    """Write ``data`` to ``output_path`` in chunks honoring ``chunk_size``."""
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    def _write_view(file_obj, view: memoryview) -> None:
+        for start in range(0, len(view), chunk_size):
+            file_obj.write(view[start:start + chunk_size])
+
+    with open(output_path, 'wb') as file_obj:
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            _write_view(file_obj, memoryview(data))
+        else:
+            for chunk in data:
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise TypeError("Chunks must be bytes-like objects")
+                _write_view(file_obj, memoryview(chunk))
 
 class OperationStatus(Enum):
     """Status of pipeline operations"""
@@ -120,7 +174,11 @@ class MultiLayerPipeline:
             from otp_layer import OTPConfiguration
             
             config = PipelineConfiguration(
-                ida_config=IDAConfiguration(total_shares=5, threshold=3),
+                ida_config=IDAConfiguration(
+                    total_shares=5,
+                    threshold=3,
+                    field_polynomial=GF512_IRREDUCIBLE_POLYNOMIAL,
+                ),
                 otp_config=OTPConfiguration()
             )
         
@@ -186,9 +244,11 @@ class MultiLayerPipeline:
             self._active_operations[file_id] = True
         
         try:
-            # Read input file
-            with open(file_path, 'rb') as f:
-                original_data = f.read()
+            # Read input file using configured chunk size
+            original_data = read_file_chunked(
+                file_path,
+                self.config.chunk_size,
+            )
             
             original_size = len(original_data)
             layer_results = []
@@ -696,9 +756,12 @@ class MultiLayerPipeline:
                     share_filename = f"{base_name}_share_{i+1}.sec"
                     share_path = os.path.join(output_dir, share_filename)
                     
-                    # Write share with secure permissions
-                    with open(share_path, 'wb') as f:
-                        f.write(share_data)
+                    # Write share with secure permissions using streaming helper
+                    write_chunks_to_file(
+                        share_path,
+                        share_data,
+                        self.config.chunk_size,
+                    )
                     os.chmod(share_path, 0o600)  # Owner read/write only
                     
                     storage_paths.append(share_path)
@@ -864,9 +927,12 @@ class MultiLayerPipeline:
                 update_progress(95, "Finalizing decryption...")
                 
                 # Save the decrypted data to the output path
-                with open(output_path, 'wb') as f:
-                    f.write(reconstructed_data)
-                
+                write_chunks_to_file(
+                    output_path,
+                    reconstructed_data,
+                    self.config.chunk_size,
+                )
+
                 # Set secure file permissions
                 os.chmod(output_path, 0o600)  # Owner read/write only
                 
@@ -981,8 +1047,9 @@ class MultiLayerPipeline:
             # Read all share files
             encrypted_shares = []
             for path in file_paths:
-                with open(path, 'rb') as f:
-                    encrypted_shares.append(f.read())
+                encrypted_shares.append(
+                    read_file_chunked(path, self.config.chunk_size)
+                )
             
             if len(encrypted_shares) < self.config.ida_config.threshold:
                 raise ValueError(
@@ -1085,9 +1152,12 @@ class MultiLayerPipeline:
                 if progress_callback else None
             )
             
-            # Save the decrypted data
-            with open(output_path, 'wb') as f:
-                f.write(original_data)
+            # Save the decrypted data using streaming helper
+            write_chunks_to_file(
+                output_path,
+                original_data,
+                self.config.chunk_size,
+            )
             
             total_time = time.time() - start_time
             logger.info(f"Successfully decrypted to {output_path} in {total_time:.2f} seconds")
@@ -1197,12 +1267,14 @@ class MultiLayerPipeline:
             logger.error(f"Multi-layer decryption failed: {e}")
             return False
         
-    # Clean up any active operations
-    with self._operation_lock:
-        for op_id in list(self._active_operations.keys()):
-            self._active_operations[op_id] = False
-        
-    logger.info("Multi-layer pipeline shutdown complete")
+    def shutdown(self) -> None:
+        """Clean up any active operations for the pipeline."""
+
+        with self._operation_lock:
+            for op_id in list(self._active_operations.keys()):
+                self._active_operations[op_id] = False
+
+        logger.info("Multi-layer pipeline shutdown complete")
 
 # Global pipeline instance
 _pipeline = None
@@ -1255,8 +1327,7 @@ Classification: TOP SECRET // QUANTUM FORTRESS
 """
     
     # Write test file
-    with open(test_file, 'wb') as f:
-        f.write(test_content)
+    write_chunks_to_file(test_file, test_content, 64 * 1024)
     
     print(f"\nTest file created: {test_file}")
     print(f"File size: {len(test_content)} bytes")
