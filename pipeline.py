@@ -1232,59 +1232,6 @@ class MultiLayerPipeline:
             ]
         }
     
-    def decrypt_file(self, encryption_result: EncryptionResult, 
-                    output_path: str,
-                    progress_callback: Optional[callable] = None) -> bool:
-        """
-        Decrypt file through all layers (reverse process).
-        
-        Args:
-            encryption_result: Result from encryption process
-            output_path: Where to save decrypted file
-            progress_callback: Optional progress callback
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        logger.info(f"Starting multi-layer decryption: {encryption_result.file_id}")
-        
-        try:
-            if progress_callback:
-                progress_callback(0, "Initializing decryption pipeline...")
-            
-            # This would reverse the entire encryption process
-            # For now, we'll implement a placeholder structure
-            
-            # LAYER 5: Retrieve from secure storage
-            if progress_callback:
-                progress_callback(20, "Layer 5: Retrieving from secure storage...")
-            
-            # LAYER 4: Decrypt with custom cipher
-            if progress_callback:
-                progress_callback(40, "Layer 4: Custom cipher decryption...")
-            
-            # LAYER 3: ML-KEM key unwrapping
-            if progress_callback:
-                progress_callback(60, "Layer 3: Quantum-resistant key unwrapping...")
-            
-            # LAYER 2: One-Time Pad decryption
-            if progress_callback:
-                progress_callback(80, "Layer 2: One-Time Pad decryption...")
-            
-            # LAYER 1: Share reconstruction
-            if progress_callback:
-                progress_callback(100, "Layer 1: Information dispersal reconstruction...")
-            
-            logger.info("Multi-layer decryption completed successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Multi-layer decryption failed: {e}")
-            return False
-        
-    def shutdown(self) -> None:
-        """Clean up any active operations for the pipeline."""
-
     def shutdown(self):
         """Shut down the pipeline and reset internal state."""
         logger.info("Shutting down multi-layer pipeline")

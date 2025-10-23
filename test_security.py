@@ -5,19 +5,14 @@ This module contains comprehensive tests for all cryptographic primitives,
 with a focus on security properties and edge cases.
 """
 
-"""
-Security Test Suite for Secure Vault
-
-This module contains comprehensive tests for all cryptographic primitives,
-with a focus on security properties and edge cases.
-"""
-
+import json
 import os
+import shutil
+import sqlite3
 import tempfile
 import time
 import unittest
-
-import numpy as np
+from pathlib import Path
 
 from audit_logger import (
     AuditEventType,
@@ -27,27 +22,10 @@ from audit_logger import (
 )
 from crypto_utils import secure_random_bytes
 from custom_cipher import Cipher512
-import shutil
-import tempfile
-import time
-import json
-import sqlite3
-import tempfile
-import tempfile
-import unittest
-from pathlib import Path
-from typing import List, Tuple
-
-import numpy as np
-
-from custom_cipher import Cipher512
-from crypto_utils import secure_random_bytes
 from error_handling import wrap_exception, emit_user_message
 from metadata_manager import MetadataManager, FileMetadata, PermissionLevel
 from access_control import AccessControl, PermissionDeniedError
 from config import StorageConfig
-from custom_cipher import Cipher512
-from crypto_utils import secure_random_bytes
 from storage_layer import SecureStorageEngine, StorageFormat
 from file_utils import SymlinkOpenError, safe_file_open
 from pin_manager import PINManager
@@ -192,7 +170,6 @@ class TestCustomCipherSecurity(unittest.TestCase):
 
 class TestCustomCipherCornerCases(unittest.TestCase):
     """Tests for edge cases and corner cases."""
-    """Tests for edge cases and corner cases"""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -236,6 +213,8 @@ class TestStorageAuditLogging(unittest.TestCase):
             'original_name': 'important.bin',
             'created_by': 'test-user'
         }
+
+
 class TestAuditLoggerSanitization(unittest.TestCase):
     """Tests to ensure audit logs never leak sensitive information."""
 
@@ -288,6 +267,8 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                 self.assertEqual(mode, 0o700)
 
             logger.close()
+
+
 class TestErrorHandlingSanitization(unittest.TestCase):
     """Ensure centralized error handling redacts sensitive data."""
 
@@ -432,6 +413,8 @@ class TestPINManagerTiming(unittest.TestCase):
 
         tolerance = max(0.002, 0.25 * valid_runtime)
         self.assertLess(abs(valid_runtime - malformed_runtime), tolerance)
+
+
 class TestStoragePathValidation(unittest.TestCase):
     """Security tests for storage path validation helper."""
 

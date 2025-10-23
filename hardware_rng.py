@@ -363,13 +363,6 @@ class HWRNGManager:
         
         return success
     
-    def get_status(self) -> Dict[str, Any]:
-        """Get status of all RNG sources"""
-        return {
-            "available_sources": [s.type.name for s in self.available_sources],
-            "sources": {s.type.name: s.get_status() for s in self.sources}
-        }
-
 class TpmRngSource(HWRNGSource):
     """Trusted Platform Module (TPM) RNG source"""
     
