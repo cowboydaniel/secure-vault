@@ -16,6 +16,7 @@ Security Features:
 
 import time
 import logging
+import threading
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -99,6 +100,7 @@ class RateLimiter:
 
         # In-memory cache for last attempt times (to implement backoff)
         self._last_attempt_time: Dict[int, float] = {}
+        self._lock = threading.Lock()
 
     def build_attempt_context(
         self,
@@ -165,7 +167,7 @@ class RateLimiter:
             required_delay = self._calculate_backoff_delay(user.failed_attempts)
 
             # Check last attempt time
-            last_attempt = self._last_attempt_time.get(user_id, 0)
+            last_attempt = self._get_last_attempt_time(user_id)
             time_since_last = time.time() - last_attempt
 
             if time_since_last < required_delay:
@@ -228,7 +230,8 @@ class RateLimiter:
         failed_count = self.db.increment_failed_attempts(user_id)
 
         # Record attempt time for exponential backoff
-        self._last_attempt_time[user_id] = time.time()
+        timestamp = time.time()
+        self._set_last_attempt_time(user_id, timestamp)
 
         logger.warning(
             f"Failed authentication attempt for user {user_id}. "
@@ -255,8 +258,7 @@ class RateLimiter:
         self.db.reset_failed_attempts(user_id)
 
         # Clear backoff timer
-        if user_id in self._last_attempt_time:
-            del self._last_attempt_time[user_id]
+        self._clear_last_attempt_time(user_id)
 
         logger.info(f"Successful authentication for user {user_id}. Reset failure counter.")
 
@@ -418,8 +420,7 @@ class RateLimiter:
         self.db.unlock_account(user_id)
 
         # Clear backoff timer
-        if user_id in self._last_attempt_time:
-            del self._last_attempt_time[user_id]
+        self._clear_last_attempt_time(user_id)
 
         logger.info(f"Manually unlocked account {user_id}")
 
@@ -456,12 +457,27 @@ class RateLimiter:
             status['retry_after_seconds'] = max(0.0, retry_after)
         elif user.failed_attempts > 0 and self.config.exponential_backoff:
             required_delay = self._calculate_backoff_delay(user.failed_attempts)
-            last_attempt = self._last_attempt_time.get(user_id, 0)
+            last_attempt = self._get_last_attempt_time(user_id)
             time_since_last = time.time() - last_attempt
             retry_after = max(0.0, required_delay - time_since_last)
             status['retry_after_seconds'] = retry_after
 
         return status
+
+    def _get_last_attempt_time(self, user_id: int) -> float:
+        """Retrieve the last attempt timestamp for a user."""
+        with self._lock:
+            return self._last_attempt_time.get(user_id, 0.0)
+
+    def _set_last_attempt_time(self, user_id: int, timestamp: float) -> None:
+        """Store the last attempt timestamp for a user."""
+        with self._lock:
+            self._last_attempt_time[user_id] = timestamp
+
+    def _clear_last_attempt_time(self, user_id: int) -> None:
+        """Remove any cached attempt timestamp for a user."""
+        with self._lock:
+            self._last_attempt_time.pop(user_id, None)
 
     def get_remaining_attempts(self, user_id: int) -> int:
         """

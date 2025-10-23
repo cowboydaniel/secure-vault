@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from datetime import timedelta
 from pathlib import Path
@@ -296,6 +297,75 @@ class AuthenticationTestCase(unittest.TestCase):
 
         with self.assertRaises(AccountLockedError):
             self.auth_manager.authenticate_with_pin(email=email, pin="00000000")
+
+    def test_rate_limiter_thread_safety_under_concurrent_failures(self) -> None:
+        """Concurrent failed attempts should not trigger race conditions."""
+
+        email = "carol@example.com"
+        password = "Thre@dsAreHard1"
+        pin = "581932"
+
+        user_id = self.user_manager.create_user(email=email, password=password, pin=pin)
+
+        limiter = self.auth_manager.rate_limiter
+        limiter.config.max_attempts = 128
+        limiter.config.exponential_backoff = False
+        limiter.config.max_global_attempts = 256
+        limiter.config.max_email_attempts = 256
+
+        attempt_threads = 24
+        barrier = threading.Barrier(attempt_threads + 2)
+        unexpected_errors = []
+        status_errors = []
+
+        def attempt_authentication() -> None:
+            try:
+                barrier.wait()
+                self.auth_manager.authenticate_with_pin(email=email, pin="000000")
+            except InvalidCredentialsError:
+                return
+            except Exception as exc:  # pragma: no cover - defensive branch
+                unexpected_errors.append(exc)
+
+        def poll_lockout_status() -> None:
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:  # pragma: no cover - defensive
+                return
+
+            for _ in range(attempt_threads * 6):
+                try:
+                    self.auth_manager.rate_limiter.get_lockout_status(user_id)
+                except Exception as exc:  # pragma: no cover - defensive branch
+                    status_errors.append(exc)
+                    break
+                time.sleep(0.001)
+
+        threads = [threading.Thread(target=attempt_authentication) for _ in range(attempt_threads)]
+        for thread in threads:
+            thread.start()
+
+        status_thread = threading.Thread(target=poll_lockout_status)
+        status_thread.start()
+
+        # Release all threads simultaneously
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:  # pragma: no cover - defensive
+            pass
+
+        for thread in threads:
+            thread.join()
+
+        status_thread.join()
+
+        self.assertFalse(unexpected_errors, f"Unexpected exceptions: {unexpected_errors}")
+        self.assertFalse(status_errors, f"Status polling errors: {status_errors}")
+
+        user = self.db.get_user_by_id(user_id)
+        self.assertIsNotNone(user)
+        if user is not None:
+            self.assertEqual(attempt_threads, user.failed_attempts)
 
     def test_prevents_multiple_accounts(self) -> None:
         """Only a single owner account may be provisioned."""
