@@ -1082,12 +1082,16 @@ def benchmark_storage_layer():
         from storage_layer import get_storage_engine, StorageFormat
         
         # Enable debug logging
+        log_dir = Path(__file__).resolve().parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "storage_benchmark_debug.log"
+
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler('storage_benchmark_debug.log')
+                logging.FileHandler(log_file)
             ]
         )
         

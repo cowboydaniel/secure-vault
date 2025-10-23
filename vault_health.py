@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
+from audit_logger import DEFAULT_AUDIT_LOG_DIR
+
 
 @dataclass
 class HealthCheckResult:
@@ -97,7 +99,7 @@ class VaultHealthEvaluator:
         return HealthCheckResult("Secure Notes Storage", status, details, remediation)
 
     def _audit_log_check(self) -> HealthCheckResult:
-        log_dir = Path("audit_logs")
+        log_dir = Path(DEFAULT_AUDIT_LOG_DIR)
         log_file = log_dir / "security_audit.log"
 
         if not log_file.exists():
