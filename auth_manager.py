@@ -15,12 +15,13 @@ This module provides the high-level authentication API used by the GUI and CLI.
 import os
 import uuid
 import logging
+import unicodedata
 from typing import Optional, Dict, Any, Union
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
 from auth_database import AuthDatabase, Session, User
-from user_manager import UserManager
+from user_manager import UserManager, ValidationError, validate_email
 from pin_manager import PINManager
 from rate_limiter import RateLimiter, RateLimitError, AccountLockedError
 from secure_memory import secure_wipe
@@ -199,7 +200,8 @@ class AuthManager:
             AccountLockedError: Account is locked due to failed attempts
             RateLimitError: Too many attempts, must wait
         """
-        email_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+        normalized_input = unicodedata.normalize("NFKC", email or "").strip()
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(normalized_input)
 
         try:
             self.rate_limiter.check_global_rate_limit(email_lookup_hash)
@@ -214,12 +216,23 @@ class AuthManager:
             )
             raise
 
+        try:
+            normalized_email = validate_email(email)
+        except ValidationError as exc:
+            self.db.record_auth_attempt(
+                user_id=None,
+                email_hash=email_lookup_hash,
+                success=False,
+                attempt_type='pin',
+                ip_address=ip_address,
+                failure_reason='invalid_email_format'
+            )
+            raise InvalidCredentialsError("Invalid email or PIN") from exc
+
         # Get user by email
-        user = self.user_manager.get_user_by_email(email)
+        user = self.user_manager.get_user_by_email(normalized_email)
         if not user:
             # Don't reveal that user doesn't exist
-            # Record attempt with email hash for tracking
-            email_hash = self.pin_manager.hash_email_for_lookup(email)
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_lookup_hash,
@@ -300,8 +313,8 @@ class AuthManager:
 
             # Upgrade email hashing scheme if necessary
             if not user.email_salt or not user.email_lookup_hash:
-                new_email_hash, new_email_salt = self.pin_manager.hash_email_for_storage(email)
-                new_lookup_hash = self.pin_manager.hash_email_for_lookup(email)
+                new_email_hash, new_email_salt = self.pin_manager.hash_email_for_storage(normalized_email)
+                new_lookup_hash = self.pin_manager.hash_email_for_lookup(normalized_email)
 
                 associated_data_new = new_email_hash + b"master_key"
                 encrypted_master_key = self.pin_manager.encrypt_master_key(
@@ -383,14 +396,29 @@ class AuthManager:
             InvalidCredentialsError: Email or password is incorrect
             AccountLockedError: Account is locked
         """
-        # Get user by email
-        user = self.user_manager.get_user_by_email(email)
-        if not user:
-            # Don't reveal that user doesn't exist
-            email_hash = self.pin_manager.hash_email_for_lookup(email)
+        normalized_input = unicodedata.normalize("NFKC", email or "").strip()
+        email_lookup_hash = self.pin_manager.hash_email_for_lookup(normalized_input)
+
+        try:
+            normalized_email = validate_email(email)
+        except ValidationError as exc:
             self.db.record_auth_attempt(
                 user_id=None,
-                email_hash=email_hash,
+                email_hash=email_lookup_hash,
+                success=False,
+                attempt_type='password',
+                ip_address=ip_address,
+                failure_reason='invalid_email_format'
+            )
+            raise InvalidCredentialsError("Invalid email or password") from exc
+
+        # Get user by email
+        user = self.user_manager.get_user_by_email(normalized_email)
+        if not user:
+            # Don't reveal that user doesn't exist
+            self.db.record_auth_attempt(
+                user_id=None,
+                email_hash=email_lookup_hash,
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,

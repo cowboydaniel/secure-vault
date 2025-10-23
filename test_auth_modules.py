@@ -11,7 +11,7 @@ from auth_manager import AuthManager, InvalidCredentialsError
 from instance_guard import InstanceGuard, TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
-from user_manager import UserManager, UserExistsError
+from user_manager import UserManager, UserExistsError, ValidationError
 import os
 import tempfile
 import unittest
@@ -144,6 +144,38 @@ class AuthenticationTestCase(unittest.TestCase):
                 password="AnotherStrongPass1!",
                 pin="839120",
             )
+
+    def test_registration_rejects_invalid_email(self) -> None:
+        """Registration should block malformed email addresses."""
+
+        with self.assertRaises(ValidationError):
+            self.user_manager.create_user(
+                email="invalid-email",
+                password="Sup3rSecurePass!",
+                pin="839201",
+            )
+
+    def test_registration_rejects_homograph_email(self) -> None:
+        """Unicode homograph domains are rejected during registration."""
+
+        with self.assertRaises(ValidationError):
+            self.user_manager.create_user(
+                email="owner@раypal.com",  # Cyrillic characters
+                password="Sup3rSecurePass!",
+                pin="839201",
+            )
+
+    def test_login_rejects_homograph_email_attempt(self) -> None:
+        """Authentication should fail for homograph email attempts."""
+
+        email = "alice@example.com"
+        password = "Sup3rSecurePass!"
+        pin = "839201"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+
+        with self.assertRaises(InvalidCredentialsError):
+            self.auth_manager.authenticate_with_pin(email="alice@еxample.com", pin=pin)
 
     def test_global_rate_limit_blocks_unknown_email(self) -> None:
         """Repeated failures for the same email trigger a cooldown."""
