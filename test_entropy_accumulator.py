@@ -3,13 +3,12 @@
 Test script for the Entropy Accumulator
 """
 
-import os
-import time
 import logging
 from typing import List, Tuple
 import numpy as np
 from entropy_monitor import EntropySource, start_monitoring, stop_monitoring
 from entropy_pool import entropy_accumulator, get_random_bytes, start_accumulator, stop_accumulator
+from crypto_utils import secure_random_bytes
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +22,7 @@ def test_entropy_accumulation():
     print("\n=== Testing Entropy Accumulation ===")
     
     # Add some test entropy
-    test_data = os.urandom(64)  # 512 bits
+    test_data = secure_random_bytes(64)  # 512 bits
     entropy_accumulator.add_entropy(test_data, 1, 256)  # Estimate 256 bits of entropy
     
     # Get some random bytes

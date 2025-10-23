@@ -6,6 +6,7 @@ Tests for Layer 2 - Information-Theoretically Secure Encryption
 import pytest
 import os
 from otp_layer import OneTimePadEngine, OTPConfiguration, OTPEncryptionResult
+from pin_manager import PINManager, PINPolicy, PINValidationError
 
 
 class TestOTPConfiguration:
@@ -546,3 +547,26 @@ class TestOTPMathematicalProperties:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+
+
+
+class TestPINPolicyIntegration:
+    """Tests covering the updated PIN policy requirements."""
+
+    def test_default_policy_minimum_length(self):
+        manager = PINManager()
+
+        with pytest.raises(PINValidationError):
+            manager.validate_pin_format("1234567")
+
+        # Should succeed when meeting the minimum length requirement
+        manager.validate_pin_format("13579268")
+
+    def test_alphanumeric_requirement(self):
+        policy = PINPolicy(min_length=8, require_letter=True)
+        manager = PINManager(pin_policy=policy)
+
+        manager.validate_pin_format("Alpha123")
+
+        with pytest.raises(PINValidationError):
+            manager.validate_pin_format("13579268")
