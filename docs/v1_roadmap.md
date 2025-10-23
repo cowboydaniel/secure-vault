@@ -42,7 +42,9 @@ _Status:_ Completed via the accessible PIN pad widget integration (`LINUX_GUI/wi
 _Status:_ Completed via expanded entropy collectors and benchmarking helpers (`entropy_monitor.py`, `rng_manager.py`, `hardware_rng.py`), hybrid ML-KEM workflows and PQC registry enhancements (`mlkem_layer.py`, `pqc_registry.py`), distributed ceremony orchestration (`distributed_workflows.py`, `threshold_crypto.py`), updated pipeline integration (`pipeline.py`), and supporting documentation in `docs/security_resilience.md` and `docs/key_ceremony.md` with regression coverage (`test_security_resilience_phase12.py`).
 
 ### 1.3 Platform Footprint
-- [ ] Close remaining gaps with Windows/macOS parity per the platform roadmap (taskbar integration, keychain usage, native dialogs, etc.) to ensure cross-platform consistency during v1 support.
+- [x] Close remaining gaps with Windows/macOS parity per the platform roadmap (taskbar integration, keychain usage, native dialogs, etc.) to ensure cross-platform consistency during v1 support.
+
+_Status:_ Completed via the platform parity service (`platform_parity.py`), CLI keychain integration (`cli_session_store.py`), and startup wiring in `main.py`, providing native taskbar/dock hooks, OS keychain storage, and dialog fallbacks that align Windows and macOS behavior with Linux.
 
 ### 1.4 CLI UX & Documentation
 - [ ] Provide comprehensive CLI help, configuration file support, progress indicators, and clearer error reporting.

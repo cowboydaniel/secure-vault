@@ -45,6 +45,7 @@ from cli_auth import CLIAuthenticator, AuthenticationFlowError
 from file_utils import validate_storage_path
 from rng_manager import get_rng_manager
 from secure_memory import secure_alloc, secure_free
+from platform_parity import PlatformIntegrationManager
 
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from auth_manager import AuthManager, AuthSession
@@ -1320,7 +1321,13 @@ def main():
     
     # Setup logging
     setup_logging(verbose=args.verbose)
-    
+
+    platform_manager = PlatformIntegrationManager(
+        app_name="SecureVault",
+        prefer_cli_dialogs=True,
+    )
+    platform_manager.announce_startup()
+
     # Register cleanup handlers
     atexit.register(stop_monitoring)
     

@@ -68,7 +68,11 @@ def test_mfa_manager_biometric(tmp_path: Path) -> None:
 
 
 def test_encrypted_session_store_roundtrip(tmp_path: Path) -> None:
-    store = EncryptedSessionStore(store_path=tmp_path / "sessions.enc")
+    store = EncryptedSessionStore(
+        store_path=tmp_path / "sessions.enc",
+        keychain_storage_path=tmp_path / "keychain.json",
+        keychain_prefer_fallback=True,
+    )
     session = PersistentSession(
         session_id="abc",
         user_id=1,
