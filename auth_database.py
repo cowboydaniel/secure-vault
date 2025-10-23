@@ -17,7 +17,10 @@ import os
 import logging
 import json
 import hashlib
-from typing import Optional, Dict, Any, List, Tuple
+import queue
+import threading
+from contextlib import contextmanager
+from typing import Optional, Dict, Any, List, Tuple, Iterator, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +92,109 @@ class AuthAttempt:
     failure_reason: Optional[str]
 
 
+class ConnectionPool:
+    """Thread-safe SQLite connection pool."""
+
+    def __init__(
+        self,
+        db_path: str,
+        max_size: int = 5,
+        *,
+        connect_kwargs: Optional[Dict[str, Any]] = None,
+        configure: Optional[Callable[[sqlite3.Connection], None]] = None,
+    ) -> None:
+        if max_size < 1:
+            raise ValueError("Connection pool size must be at least 1")
+
+        self.db_path = db_path
+        self.max_size = max_size
+        self._connect_kwargs = connect_kwargs or {}
+        self._configure = configure
+        self._pool: "queue.LifoQueue[sqlite3.Connection]" = queue.LifoQueue(max_size)
+        self._lock = threading.Lock()
+        self._created = 0
+        self._all_connections: set[sqlite3.Connection] = set()
+        self._closed = False
+
+    def _create_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, **self._connect_kwargs)
+        if self._configure is not None:
+            self._configure(conn)
+        return conn
+
+    def acquire(self) -> sqlite3.Connection:
+        if self._closed:
+            raise RuntimeError("Connection pool has been closed")
+
+        try:
+            return self._pool.get_nowait()
+        except queue.Empty:
+            with self._lock:
+                if self._created < self.max_size:
+                    conn = self._create_connection()
+                    self._created += 1
+                    self._all_connections.add(conn)
+                    return conn
+
+        # Pool is at capacity; block until a connection becomes available
+        conn = self._pool.get()
+        if self._closed:
+            raise RuntimeError("Connection pool has been closed")
+        return conn
+
+    def release(self, conn: sqlite3.Connection) -> None:
+        if self._closed:
+            self._finalize_connection(conn)
+            return
+
+        try:
+            self._pool.put_nowait(conn)
+        except queue.Full:
+            self._finalize_connection(conn)
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            connections = list(self._all_connections)
+            self._all_connections.clear()
+            self._created = 0
+
+        for conn in connections:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                logger.exception("Failed to close pooled connection")
+
+        # Drain any remaining references in the queue to avoid holding closed connections
+        while True:
+            try:
+                self._pool.get_nowait()
+            except queue.Empty:
+                break
+
+    def _finalize_connection(self, conn: sqlite3.Connection) -> None:
+        with self._lock:
+            if conn in self._all_connections:
+                self._all_connections.remove(conn)
+                self._created = len(self._all_connections)
+        try:
+            conn.close()
+        except sqlite3.Error:
+            logger.exception("Failed to close pooled connection during release")
+
+    @contextmanager
+    def connection(self) -> Iterator[sqlite3.Connection]:
+        conn = self.acquire()
+        try:
+            yield conn
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
+        finally:
+            self.release(conn)
 @dataclass
 class DeviceAttemptState:
     """Aggregated device attempt metadata."""
@@ -114,6 +220,7 @@ class AuthDatabase:
 
     INSTANCE_SECRET_KEY = "instance_secret"
 
+    def __init__(self, db_path: Optional[str] = None, *, pool_size: int = 5):
     _registered_cleanup_paths = set()
 
     def __init__(self, db_path: Optional[str] = None):
@@ -131,6 +238,24 @@ class AuthDatabase:
         self.db_path = db_path
         self._db_path = Path(db_path)
         self.connection: Optional[sqlite3.Connection] = None
+
+        connect_kwargs = {
+            "detect_types": sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
+            "check_same_thread": False,
+        }
+
+        def _configure_connection(conn: sqlite3.Connection) -> None:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+
+        self._pool = ConnectionPool(
+            self.db_path,
+            max_size=pool_size,
+            connect_kwargs=connect_kwargs,
+            configure=_configure_connection,
+        )
+
+        atexit.register(self.close)
 
         self._instance_guard = InstanceGuard(self.db_path)
 
@@ -444,6 +569,12 @@ class AuthDatabase:
 
             conn.commit()
 
+    @contextmanager
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
+        """Context manager that yields a pooled database connection."""
+
+        with self._pool.connection() as conn:
+            yield conn
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with proper settings"""
         conn = sqlite3.connect(
@@ -460,6 +591,15 @@ class AuthDatabase:
     def close(self):
         """Close database connection"""
         if self.connection:
+            try:
+                self.connection.close()
+            except sqlite3.Error:
+                logger.exception("Failed to close legacy connection handle")
+            finally:
+                self.connection = None
+
+        if hasattr(self, "_pool"):
+            self._pool.close()
             self.connection.close()
             self.connection = None
         self.cleanup()
