@@ -30,6 +30,11 @@ from config import default_config, LOGGING_CONFIG, VERSION, BUILD_DATE
 from entropy_monitor import start_monitoring, stop_monitoring, get_health_status, EntropySource
 from entropy_pool import entropy_accumulator, get_random_bytes
 from pipeline import MultiLayerPipeline, PipelineConfiguration
+from file_utils import (
+    DEFAULT_MAX_INPUT_SIZE_BYTES,
+    InputFileValidationError,
+    validate_input_file,
+)
 from ida_layer import IDAConfiguration
 from otp_layer import OTPConfiguration
 from storage_layer import get_storage_engine
@@ -474,12 +479,16 @@ def encrypt_file_interactive():
     
     # Get file path
     file_path = input("\nEnter file path to encrypt: ").strip('"\'')
-    
-    if not os.path.exists(file_path):
-        print(f"Error: File not found: {file_path}")
+
+    try:
+        file_size = validate_input_file(file_path, DEFAULT_MAX_INPUT_SIZE_BYTES)
+    except FileNotFoundError as exc:
+        print(f"Error: {exc}")
         return False
-    
-    file_size = os.path.getsize(file_path)
+    except InputFileValidationError as exc:
+        print(f"Error: {exc}")
+        return False
+
     print(f"\nFile: {file_path}")
     print(f"Size: {file_size:,} bytes")
     

@@ -19,6 +19,11 @@ if project_root not in sys.path:
 
 from LINUX_GUI.widgets.secure_password_input import SecurePasswordInput
 from LINUX_GUI.widgets.file_drop_zone import FileDropZone
+from file_utils import (
+    DEFAULT_MAX_INPUT_SIZE_BYTES,
+    InputFileValidationError,
+    validate_input_file,
+)
 
 
 class EncryptionWorker(QThread):
@@ -51,6 +56,18 @@ class EncryptionWorker(QThread):
                     return
 
                 self.status.emit(f"Encrypting {Path(file_path).name}...")
+
+                max_size = self.options.get(
+                    "max_input_size_bytes", DEFAULT_MAX_INPUT_SIZE_BYTES
+                )
+                try:
+                    validate_input_file(file_path, max_size)
+                except FileNotFoundError:
+                    self.finished.emit(False, f"File not found: {file_path}")
+                    return
+                except InputFileValidationError as exc:
+                    self.finished.emit(False, f"Input error: {exc}")
+                    return
 
                 # Configure pipeline
                 config = PipelineConfig()
