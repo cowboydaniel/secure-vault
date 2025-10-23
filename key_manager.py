@@ -920,6 +920,26 @@ class KeyManager:
                     setattr(metadata, key, value)
             self._key_metadata[key_id] = metadata
             self._save_metadata()
+
+    def update_key_metadata(self, key_id: str, **updates) -> None:
+        """Public method to update key metadata and persist custom fields."""
+        if key_id not in self._key_metadata:
+            raise KeyError(f"Key {key_id} not found")
+
+        metadata = self._key_metadata[key_id]
+        custom_updates = updates.pop('custom_metadata', None)
+
+        for key, value in updates.items():
+            if hasattr(metadata, key):
+                setattr(metadata, key, value)
+
+        if custom_updates:
+            merged_custom = dict(metadata.custom_metadata or {})
+            merged_custom.update(custom_updates)
+            metadata.custom_metadata = merged_custom
+
+        self._key_metadata[key_id] = metadata
+        self._save_metadata()
     
     def generate_key(self, key_type: KeyType, key_size: int = 32, 
                     key_id: Optional[str] = None, **metadata) -> Tuple[str, KeyMetadata]:
@@ -1018,10 +1038,15 @@ class KeyManager:
                 raise HSMUnavailableError("HSM not available")
                 
             # Update key usage stats
-            self._update_key_metadata(
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                raise KeyError(f"Key {key_id} not found")
+
+            usage_count = metadata.usage_count + 1
+            self.update_key_metadata(
                 key_id,
                 last_used=time.time(),
-                usage_count=self._key_metadata.get(key_id, 0) + 1
+                usage_count=usage_count
             )
             
             return self._hsm.encrypt(key_id, plaintext, aad)
@@ -1049,10 +1074,15 @@ class KeyManager:
                 raise HSMUnavailableError("HSM not available")
                 
             # Update key usage stats
-            self._update_key_metadata(
+            metadata = self._key_metadata.get(key_id)
+            if not metadata:
+                raise KeyError(f"Key {key_id} not found")
+
+            usage_count = metadata.usage_count + 1
+            self.update_key_metadata(
                 key_id,
                 last_used=time.time(),
-                usage_count=self._key_metadata.get(key_id, 0) + 1
+                usage_count=usage_count
             )
             
             return self._hsm.decrypt(key_id, ciphertext, iv, aad)
