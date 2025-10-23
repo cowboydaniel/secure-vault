@@ -43,7 +43,13 @@ class TestOTPBasicEncryption:
         assert len(result.ciphertext) == len(plaintext)
         assert result.ciphertext != plaintext
 
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
         assert decrypted == plaintext
 
     def test_encrypt_empty_fails(self):
@@ -59,7 +65,13 @@ class TestOTPBasicEncryption:
         plaintext = b"A"
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
 
@@ -69,7 +81,13 @@ class TestOTPBasicEncryption:
         plaintext = os.urandom(1024 * 100)  # 100 KB
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
 
@@ -128,7 +146,13 @@ class TestOTPProperties:
 
         # Decrypting modified ciphertext should give different plaintext
         try:
-            modified_plaintext = otp.decrypt(modified_ciphertext, result.key_id)
+            modified_plaintext = otp.decrypt(
+                modified_ciphertext,
+                result.key_id,
+                result.iv,
+                result.nonce,
+                counter=result.counter
+            )
             # The first byte should differ by 1 bit
             assert modified_plaintext != plaintext
             assert modified_plaintext[0] != plaintext[0]
@@ -184,7 +208,13 @@ class TestOTPDataTypes:
         plaintext = b"The quick brown fox jumps over the lazy dog"
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
 
@@ -194,7 +224,13 @@ class TestOTPDataTypes:
         plaintext = bytes(range(256))  # All byte values
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
 
@@ -204,7 +240,13 @@ class TestOTPDataTypes:
         plaintext = b'\x00' * 1024
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
         # Ciphertext should not be all zeros (should be the key)
@@ -216,7 +258,13 @@ class TestOTPDataTypes:
         plaintext = b'\xff' * 1024
 
         result = otp.encrypt(plaintext)
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
 
         assert decrypted == plaintext
 
@@ -229,7 +277,13 @@ class TestOTPDataTypes:
         for size in sizes:
             plaintext = os.urandom(size)
             result = otp.encrypt(plaintext)
-            decrypted = otp.decrypt(result.ciphertext, result.key_id)
+            decrypted = otp.decrypt(
+                result.ciphertext,
+                result.key_id,
+                result.iv,
+                result.nonce,
+                counter=result.counter
+            )
             assert decrypted == plaintext, f"Failed for size {size}"
 
 
@@ -245,7 +299,13 @@ class TestOTPErrorHandling:
 
         # Try to decrypt with wrong key ID
         with pytest.raises((ValueError, KeyError, RuntimeError)):
-            otp.decrypt(result.ciphertext, "wrong-key-id")
+            otp.decrypt(
+                result.ciphertext,
+                "wrong-key-id",
+                result.iv,
+                result.nonce,
+                counter=result.counter
+            )
 
     def test_decrypt_with_wrong_length_ciphertext(self):
         """Test that decryption with wrong length fails or handles gracefully"""
@@ -258,12 +318,62 @@ class TestOTPErrorHandling:
         truncated = result.ciphertext[:len(result.ciphertext)//2]
 
         try:
-            decrypted = otp.decrypt(truncated, result.key_id)
+            decrypted = otp.decrypt(
+                truncated,
+                result.key_id,
+                result.iv,
+                result.nonce,
+                counter=result.counter
+            )
             # If it doesn't raise an error, the result should be truncated
             assert len(decrypted) == len(truncated)
         except (ValueError, RuntimeError):
             # It's also acceptable to raise an error
             pass
+
+
+class TestOTPCounterIntegrity:
+    """Tests for OTP counter uniqueness enforcement"""
+
+    def test_decrypt_reuse_counter_fails(self):
+        """Ensure repeated decrypt attempts with same metadata fail"""
+        otp = OneTimePadEngine()
+        plaintext = b"Counter reuse detection"
+
+        result = otp.encrypt(plaintext)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
+        assert decrypted == plaintext
+
+        with pytest.raises(RuntimeError, match="already consumed"):
+            otp.decrypt(
+                result.ciphertext,
+                result.key_id,
+                result.iv,
+                result.nonce,
+                counter=result.counter
+            )
+
+    def test_reserve_counter_detects_reuse(self):
+        """Ensure counter reservation fails when metadata indicates reuse"""
+        otp = OneTimePadEngine()
+
+        key_id, _ = otp._generate_otp_key(32)
+        counter, _ = otp._reserve_counter(key_id)
+        assert counter == 0
+
+        metadata = otp._key_manager.get_key_metadata(key_id)
+        custom = dict(metadata.custom_metadata or {})
+        custom['otp_next_counter'] = counter
+        otp._key_manager.update_key_metadata(key_id, custom_metadata=custom)
+
+        with pytest.raises(RuntimeError, match="counter reuse"):
+            otp._reserve_counter(key_id)
 
 
 class TestOTPSecurity:
@@ -373,7 +483,13 @@ class TestOTPPerformance:
         result = otp.encrypt(plaintext)
 
         start = time.time()
-        decrypted = otp.decrypt(result.ciphertext, result.key_id)
+        decrypted = otp.decrypt(
+            result.ciphertext,
+            result.key_id,
+            result.iv,
+            result.nonce,
+            counter=result.counter
+        )
         end = time.time()
 
         elapsed = end - start
