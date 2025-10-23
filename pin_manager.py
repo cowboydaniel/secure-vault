@@ -203,6 +203,7 @@ class PINManager:
         if len(set(pin)) == 1:
             raise PINValidationError("PIN cannot have all repeating digits")
 
+        # Check against weak PIN list
         # Check for sequential digits (ascending or descending)
         if self._is_sequential(pin):
             raise PINValidationError("PIN cannot be sequential (e.g., 123456)")
@@ -214,6 +215,10 @@ class PINManager:
         # Check for patterns like 121212
         if self._has_pattern(pin):
             raise PINValidationError("PIN has a repeating pattern - please choose a more random PIN")
+
+        pattern_error = self._check_patterns(pin)
+        if pattern_error:
+            raise PINValidationError(pattern_error)
 
     def _is_sequential(self, pin: str) -> bool:
         """Check if PIN has sequential digits"""
@@ -246,6 +251,66 @@ class PINManager:
         if len(pin) >= 6:
             pattern = pin[:3]
             if pattern * (len(pin) // 3) == pin[:len(pin) - len(pin) % 3]:
+                return True
+
+        return False
+
+    def _check_patterns(self, pin: str) -> Optional[str]:
+        """Return a descriptive error message for disallowed PIN patterns."""
+
+        if self._is_sequential(pin):
+            return "PIN cannot be sequential (e.g., 123456)"
+
+        if self._resembles_date(pin):
+            return (
+                "PIN resembles a date (e.g., DDMMYY) - please choose something "
+                "less guessable"
+            )
+
+        if any(pin[i] == pin[i + 1] == pin[i + 2] for i in range(len(pin) - 2)):
+            return "PIN cannot contain repeated digit sequences (e.g., 555120)"
+
+        return None
+
+    def _resembles_date(self, pin: str) -> bool:
+        """Check if the PIN matches common date encodings."""
+
+        if len(pin) not in (6, 8):
+            return False
+
+        def is_valid_month(value: str) -> bool:
+            month = int(value)
+            return 1 <= month <= 12
+
+        def is_valid_day(value: str) -> bool:
+            day = int(value)
+            return 1 <= day <= 31
+
+        def is_valid_year(value: str, digits: int) -> bool:
+            year = int(value)
+            if digits == 2:
+                return 0 <= year <= 99
+            return 1900 <= year <= 2099
+
+        if len(pin) == 6:
+            patterns = [
+                (pin[2:4], pin[:2], pin[4:], 2),  # DDMMYY
+                (pin[:2], pin[2:4], pin[4:], 2),  # MMDDYY
+                (pin[2:4], pin[4:], pin[:2], 2),  # YYMMDD
+            ]
+        else:
+            patterns = [
+                (pin[2:4], pin[:2], pin[4:], 4),  # DDMMYYYY
+                (pin[:2], pin[2:4], pin[4:], 4),  # MMDDYYYY
+                (pin[4:6], pin[6:], pin[:4], 4),  # YYYYMMDD
+            ]
+
+        for month_str, day_str, year_str, year_digits in patterns:
+            if (
+                is_valid_month(month_str)
+                and is_valid_day(day_str)
+                and is_valid_year(year_str, year_digits)
+            ):
                 return True
 
         return False
