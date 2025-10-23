@@ -30,6 +30,7 @@ class InstanceGuard:
     """Persisted state helper that detects authentication tampering."""
 
     STATE_FILENAME = "instance_state.json"
+    MARKER_FILENAME = "instance_marker.json"
 
     def __init__(self, db_path: str, state_dir: Optional[str] = None) -> None:
         env_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
@@ -37,14 +38,51 @@ class InstanceGuard:
         self.state_dir = Path(base_dir)
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.state_path = self.state_dir / self.STATE_FILENAME
+        self.marker_path = self.state_dir / self.MARKER_FILENAME
         self.db_path = Path(db_path)
         self._state: Dict[str, Any] = {}
         self._fresh_state = False
+        self._marker: Optional[Dict[str, Any]] = self._load_marker()
         self._state = self._load_or_initialize_state()
 
     # ------------------------------------------------------------------
     # State handling
     # ------------------------------------------------------------------
+    def _load_marker(self) -> Optional[Dict[str, Any]]:
+        if not self.marker_path.exists():
+            return None
+
+        try:
+            with self.marker_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:  # pragma: no cover - defensive
+            raise InstanceStateError("Unable to read instance guard marker") from exc
+
+        if not isinstance(data, dict):
+            raise InstanceStateError("Instance guard marker is invalid")
+
+        return data
+
+    def _write_marker(self, marker: Dict[str, Any]) -> None:
+        tmp_path = self.marker_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(marker, handle, sort_keys=True, indent=2)
+        os.replace(tmp_path, self.marker_path)
+        os.chmod(self.marker_path, 0o600)
+        self._marker = marker
+
+    def _marker_indicates_provisioned(self) -> bool:
+        marker = self._marker
+        if not marker:
+            return False
+
+        binding_hash = marker.get("binding_hash")
+        if isinstance(binding_hash, str) and binding_hash:
+            return True
+
+        provisioned = marker.get("provisioned")
+        return bool(provisioned)
+
     def _load_or_initialize_state(self) -> Dict[str, Any]:
         if self.state_path.exists():
             try:
@@ -58,6 +96,22 @@ class InstanceGuard:
 
             if data.get("status") not in {"pending", "provisioned", "locked"}:
                 raise InstanceStateError("Instance guard state status is invalid")
+
+            if data.get("status") in {"provisioned", "locked"} and not self._marker_indicates_provisioned():
+                logger.error(
+                    "Instance guard marker missing while state indicates provisioning"
+                )
+                raise TamperDetectedError(
+                    "Authentication guard marker missing; manual recovery required."
+                )
+
+            if data.get("status") == "pending" and self._marker_indicates_provisioned():
+                logger.error(
+                    "Instance guard marker indicates prior provisioning but state reverted"
+                )
+                raise TamperDetectedError(
+                    "Authentication guard state reverted unexpectedly; manual recovery required."
+                )
 
             self._fresh_state = False
             return data
@@ -87,6 +141,8 @@ class InstanceGuard:
         """Return ``True`` when the database indicates a previous installation."""
 
         try:
+            if self._marker_indicates_provisioned():
+                return True
             if not self.db_path.exists():
                 return False
 
@@ -104,6 +160,52 @@ class InstanceGuard:
             json.dump(state, handle, sort_keys=True, indent=2)
         os.replace(tmp_path, self.state_path)
         os.chmod(self.state_path, 0o600)
+
+    def ensure_binding_marker(self, binding_hash: str, *, allow_create: bool = False) -> None:
+        """Validate or initialize the tamper-evident binding marker."""
+
+        if not isinstance(binding_hash, str) or not binding_hash:
+            raise InstanceStateError("Instance guard binding hash is invalid")
+
+        marker = self._marker
+
+        if marker is None:
+            if not allow_create:
+                logger.error("Instance guard marker missing when binding expected")
+                self.lockdown("missing_marker")
+                raise TamperDetectedError(
+                    "Authentication guard marker missing; manual recovery required."
+                )
+
+            marker = {
+                "binding_hash": binding_hash,
+                "provisioned": True,
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            self._write_marker(marker)
+            return
+
+        existing_hash = marker.get("binding_hash")
+
+        if existing_hash is None:
+            if allow_create:
+                marker["binding_hash"] = binding_hash
+                marker["provisioned"] = True
+            else:
+                logger.error("Instance guard marker missing binding hash")
+                self.lockdown("missing_marker")
+                raise TamperDetectedError(
+                    "Authentication guard marker missing; manual recovery required."
+                )
+        elif existing_hash != binding_hash:
+            self.lockdown("binding_marker_mismatch")
+            raise TamperDetectedError(
+                "Authentication guard tamper marker mismatch; manual recovery required."
+            )
+
+        marker["updated_at"] = datetime.utcnow().isoformat()
+        self._write_marker(marker)
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -153,6 +255,9 @@ class InstanceGuard:
             return
 
         expected_hash = db.hash_instance_secret(self.get_secret())
+        if stored_hash is not None:
+            self.ensure_binding_marker(expected_hash, allow_create=False)
+
         if stored_hash != expected_hash:
             self.lockdown("binding_mismatch")
             raise TamperDetectedError(

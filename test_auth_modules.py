@@ -648,6 +648,26 @@ class AuthenticationTestCase(unittest.TestCase):
         with self.assertRaises(TamperDetectedError):
             AuthDatabase(db_path=self.db_path)
 
+    def test_missing_guard_state_and_database_detected(self) -> None:
+        """Removing both the database and guard state trips tamper detection."""
+
+        self.user_manager.create_user(
+            email="owner@example.com",
+            password="Secur3OwnerPass!",
+            pin="746291",
+        )
+
+        state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME
+        marker_path = Path(self.state_dir) / InstanceGuard.MARKER_FILENAME
+        self.assertTrue(marker_path.exists())
+
+        self.db.close()
+        os.remove(self.db_path)
+        state_path.unlink()
+
+        with self.assertRaises(TamperDetectedError):
+            AuthDatabase(db_path=self.db_path)
+
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience
