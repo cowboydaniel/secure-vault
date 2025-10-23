@@ -1,23 +1,24 @@
-"""
-Secure Metadata Management
-
-Manages metadata for encrypted files including file information,
-encryption parameters, and integrity data in a secure SQLite database.
-"""
+"""Secure Metadata Management with encrypted persistence."""
 
 import atexit
-import sqlite3
+import base64
+import binascii
+import hashlib
 import json
-import time
 import logging
 import os
-from enum import Enum
-from typing import Dict, Any, Optional, List, Tuple, Union
-from typing import Dict, Any, Optional, List
-from pathlib import Path
+import sqlite3
+import time
 from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from error_handling import emit_user_message
+from instance_guard import InstanceGuard, InstanceStateError, TamperDetectedError
+from crypto_utils import derive_key_hkdf_sha3_512, secure_wipe
 
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,20 @@ class FilePermission:
 
 class MetadataManager:
     _registered_cleanup_paths = set()
+    _PROTECTED_COLUMNS = {
+        'iv',
+        'integrity_hash',
+        'shares_total',
+        'shares_threshold',
+        'custom_metadata',
+    }
+
+    DERIVATION_SALT = hashlib.sha256(b"MetadataManager::encryption").digest()
+    DERIVATION_INFO = b"metadata-manager-storage-key-v1"
+    LOCAL_SECRET_FILENAME = ".metadata_master_secret"
+    LOCAL_SECRET_VERSION = 1
+    LOCAL_SECRET_SALT = hashlib.sha256(b"MetadataManager::local_secret").digest()
+    LOCAL_SECRET_INFO = b"metadata-manager-local-secret"
     """
     Secure metadata management using encrypted SQLite database
 
@@ -88,7 +103,12 @@ class MetadataManager:
     - Backup and export functionality
     """
 
-    def __init__(self, db_path: str = "metadata.db", encryption_key: Optional[bytes] = None):
+    def __init__(
+        self,
+        db_path: str = "metadata.db",
+        encryption_key: Optional[bytes] = None,
+        instance_guard: Optional[InstanceGuard] = None,
+    ):
         """
         Initialize metadata manager
 
@@ -97,7 +117,10 @@ class MetadataManager:
             encryption_key: Key for database encryption (future enhancement)
         """
         self.db_path = Path(db_path)
-        self.encryption_key = encryption_key
+        self.db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._instance_guard = instance_guard
+        self._guard_secret: Optional[bytes] = None
+        self._encryption_key = self._initialize_encryption_key(encryption_key)
 
         self._pool = ConnectionPool(
             str(self.db_path),
@@ -110,6 +133,187 @@ class MetadataManager:
         self._init_database()
         self._register_shutdown_cleanup()
 
+    def _initialize_encryption_key(self, supplied_key: Optional[bytes]) -> bytearray:
+        if supplied_key is not None:
+            if not isinstance(supplied_key, (bytes, bytearray)):
+                raise TypeError("encryption_key must be bytes-like when provided")
+
+            key_material = bytes(supplied_key)
+            derived = derive_key_hkdf_sha3_512(
+                key_material,
+                length=32,
+                salt=self.DERIVATION_SALT,
+                info=self.DERIVATION_INFO,
+            )
+            if isinstance(supplied_key, bytearray):
+                secure_wipe(supplied_key)
+            secure_wipe(bytearray(key_material))
+            return bytearray(derived)
+
+        secret = self._load_or_create_local_secret()
+        derived = derive_key_hkdf_sha3_512(
+            secret,
+            length=32,
+            salt=self.DERIVATION_SALT,
+            info=self.DERIVATION_INFO,
+        )
+        secure_wipe(bytearray(secret))
+        return bytearray(derived)
+
+    def _resolve_guard_secret(self) -> Optional[bytes]:
+        if self._guard_secret is not None:
+            return self._guard_secret
+
+        if self._instance_guard is not None:
+            try:
+                secret = self._instance_guard.get_secret()
+                self._guard_secret = bytes(secret)
+                return self._guard_secret
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.error("Instance guard provided to MetadataManager is unusable: %s", exc)
+
+        try:
+            guard = InstanceGuard(str(self.db_path))
+            secret = guard.get_secret()
+            self._instance_guard = guard
+            self._guard_secret = bytes(secret)
+            return self._guard_secret
+        except (InstanceStateError, TamperDetectedError) as exc:
+            logger.error("Instance guard unavailable for metadata encryption: %s", exc)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to initialize instance guard for metadata: %s", exc)
+
+        return None
+
+    def _derive_guard_key(self) -> bytes:
+        guard_secret = self._resolve_guard_secret()
+        if guard_secret is None:
+            raise RuntimeError(
+                "MetadataManager requires an instance guard or encryption key"
+            )
+        return derive_key_hkdf_sha3_512(
+            guard_secret,
+            length=32,
+            salt=self.LOCAL_SECRET_SALT,
+            info=self.LOCAL_SECRET_INFO,
+        )
+
+    def _store_local_secret(self, secret: bytes, wrap_key: bytes, secret_path: Path) -> None:
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(wrap_key)
+        ciphertext = aesgcm.encrypt(nonce, secret, self.LOCAL_SECRET_INFO)
+        payload = {
+            'version': self.LOCAL_SECRET_VERSION,
+            'nonce': base64.b64encode(nonce).decode('ascii'),
+            'ciphertext': base64.b64encode(ciphertext).decode('ascii'),
+        }
+        tmp_path = secret_path.with_suffix('.tmp')
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        os.replace(tmp_path, secret_path)
+        os.chmod(secret_path, 0o600)
+
+    def _load_or_create_local_secret(self) -> bytes:
+        secret_path = self.db_path.parent / self.LOCAL_SECRET_FILENAME
+        wrap_key = self._derive_guard_key()
+
+        if secret_path.exists():
+            try:
+                raw_data = secret_path.read_bytes()
+            except OSError as exc:
+                raise RuntimeError("Failed to read metadata encryption secret") from exc
+
+            try:
+                payload = json.loads(raw_data.decode('utf-8'))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                payload = None
+
+            if isinstance(payload, dict) and payload.get('version') == self.LOCAL_SECRET_VERSION:
+                try:
+                    nonce = base64.b64decode(payload['nonce'])
+                    ciphertext = base64.b64decode(payload['ciphertext'])
+                    aesgcm = AESGCM(wrap_key)
+                    secret = aesgcm.decrypt(nonce, ciphertext, self.LOCAL_SECRET_INFO)
+                    if len(secret) != 64:
+                        raise ValueError("Unexpected metadata secret length")
+                    return secret
+                except (KeyError, ValueError, binascii.Error) as exc:
+                    raise RuntimeError("Stored metadata encryption secret is invalid") from exc
+
+            try:
+                legacy_secret = base64.b64decode(raw_data)
+                if len(legacy_secret) != 64:
+                    raise ValueError("Unexpected metadata secret length")
+                self._store_local_secret(legacy_secret, wrap_key, secret_path)
+                return legacy_secret
+            except (binascii.Error, ValueError) as exc:
+                raise RuntimeError("Unable to decode legacy metadata secret") from exc
+
+        secret = os.urandom(64)
+        self._store_local_secret(secret, wrap_key, secret_path)
+        return secret
+
+    def _serialize_sensitive_value(self, column: str, value: Any) -> bytes:
+        if isinstance(value, bytes):
+            return bytes(value)
+        if isinstance(value, bytearray):
+            buffer = bytes(value)
+            secure_wipe(value)
+            return buffer
+        if value is None:
+            return b''
+        if column == 'custom_metadata':
+            return json.dumps(value).encode('utf-8')
+        if column in {'shares_total', 'shares_threshold'}:
+            return str(int(value)).encode('utf-8')
+        return str(value).encode('utf-8')
+
+    def _deserialize_sensitive_value(self, column: str, plaintext: bytes) -> Any:
+        if column == 'iv':
+            return bytes(plaintext)
+        if column == 'integrity_hash':
+            return plaintext.decode('utf-8')
+        if column in {'shares_total', 'shares_threshold'}:
+            if not plaintext:
+                return None
+            return int(plaintext.decode('utf-8'))
+        if column == 'custom_metadata':
+            if not plaintext:
+                return None
+            return json.loads(plaintext.decode('utf-8'))
+        return plaintext
+
+    def _encrypt_field(self, column: str, value: Any) -> Optional[bytes]:
+        if value is None:
+            return None
+        aesgcm = AESGCM(bytes(self._encryption_key))
+        nonce = os.urandom(12)
+        plaintext = self._serialize_sensitive_value(column, value)
+        ciphertext = aesgcm.encrypt(nonce, plaintext, column.encode('utf-8'))
+        return nonce + ciphertext
+
+    def _decrypt_field(self, column: str, value: Any) -> Any:
+        if value is None:
+            return None
+
+        if isinstance(value, int) and column in {'shares_total', 'shares_threshold'}:
+            return value
+
+        if isinstance(value, str):
+            return self._deserialize_sensitive_value(column, value.encode('utf-8'))
+
+        if isinstance(value, memoryview):
+            value = value.tobytes()
+
+        if isinstance(value, (bytes, bytearray)):
+            raw = bytes(value)
+            if len(raw) < 13:  # nonce + minimum tag
+                return self._deserialize_sensitive_value(column, raw)
+            nonce, ciphertext = raw[:12], raw[12:]
+            aesgcm = AESGCM(bytes(self._encryption_key))
+            plaintext = aesgcm.decrypt(nonce, ciphertext, column.encode('utf-8'))
+            return self._deserialize_sensitive_value(column, plaintext)
+
+        return value
     @property
     def last_error_message(self) -> Optional[str]:
         """Return the most recent sanitized error message."""
@@ -203,35 +407,29 @@ class MetadataManager:
             ON file_metadata(original_name)
         ''')
 
-            # Index for faster queries
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_original_name
-                ON file_metadata(original_name)
-            ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_encryption_timestamp
+            ON file_metadata(encryption_timestamp)
+        ''')
 
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_encryption_timestamp
-                ON file_metadata(encryption_timestamp)
-            ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_key_id
+            ON file_metadata(key_id)
+        ''')
 
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_key_id
-                ON file_metadata(key_id)
-            ''')
+        # Audit log table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metadata_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                details TEXT,
+                FOREIGN KEY (file_id) REFERENCES file_metadata(file_id)
+            )
+        ''')
 
-            # Audit log table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS metadata_audit (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_id TEXT NOT NULL,
-                    operation TEXT NOT NULL,
-                    timestamp REAL NOT NULL,
-                    details TEXT,
-                    FOREIGN KEY (file_id) REFERENCES file_metadata(file_id)
-                )
-            ''')
-
-            conn.commit()
+        conn.commit()
 
     def _permission_to_str(self, permission: Union[PermissionLevel, str]) -> str:
         """Normalize permission value to its string representation."""
@@ -464,14 +662,14 @@ class MetadataManager:
                     metadata.encryption_timestamp,
                     metadata.encryption_algorithm,
                     metadata.key_id,
-                    metadata.iv,
-                    metadata.integrity_hash,
+                    self._encrypt_field('iv', metadata.iv),
+                    self._encrypt_field('integrity_hash', metadata.integrity_hash),
                     metadata.compression_used,
                     metadata.compression_algorithm,
-                    metadata.shares_total,
-                    metadata.shares_threshold,
+                    self._encrypt_field('shares_total', metadata.shares_total),
+                    self._encrypt_field('shares_threshold', metadata.shares_threshold),
                     json.dumps(metadata.tags) if metadata.tags else None,
-                    json.dumps(metadata.custom_metadata) if metadata.custom_metadata else None,
+                    self._encrypt_field('custom_metadata', metadata.custom_metadata),
                     current_time,
                     current_time
                 ))
@@ -522,23 +720,7 @@ class MetadataManager:
                 row = cursor.fetchone()
 
                 if row:
-                    metadata = FileMetadata(
-                        file_id=row[0],
-                        original_name=row[1],
-                        original_size=row[2],
-                        encrypted_size=row[3],
-                        encryption_timestamp=row[4],
-                        encryption_algorithm=row[5],
-                        key_id=row[6],
-                        iv=row[7],
-                        integrity_hash=row[8],
-                        compression_used=bool(row[9]),
-                        compression_algorithm=row[10],
-                        shares_total=row[11],
-                        shares_threshold=row[12],
-                        tags=json.loads(row[13]) if row[13] else None,
-                        custom_metadata=json.loads(row[14]) if row[14] else None
-                    )
+                    metadata = self._deserialize_metadata_row(row)
 
                     # Log access
                     self._log_audit(cursor, file_id, 'READ', {})
@@ -547,6 +729,10 @@ class MetadataManager:
                     return metadata
 
                 return None
+        except sqlite3.Error as exc:
+            print(f"Database error: {exc}")
+            if conn and conn.in_transaction:
+                conn.rollback()
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -597,10 +783,23 @@ class MetadataManager:
                 conn = pooled_conn
                 cursor = conn.cursor()
 
-                set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
+                prepared_items: List[Tuple[str, Any]] = []
+                for key, value in updates.items():
+                    if key in self._PROTECTED_COLUMNS:
+                        prepared_items.append((key, self._encrypt_field(key, value)))
+                    elif key == 'tags':
+                        prepared_items.append((
+                            key,
+                            json.dumps(value) if value is not None else None,
+                        ))
+                    else:
+                        prepared_items.append((key, value))
+
+                set_clause = ", ".join(f"{column} = ?" for column, _ in prepared_items)
                 set_clause += ", updated_at = ?"
 
-                values = list(updates.values()) + [time.time(), file_id]
+                values = [stored for _, stored in prepared_items]
+                values.extend([time.time(), file_id])
 
                 cursor.execute(f'''
                     UPDATE file_metadata
@@ -720,28 +919,19 @@ class MetadataManager:
 
                 results: List[FileMetadata] = []
                 for row in cursor.fetchall():
-                    metadata = FileMetadata(
-                        file_id=row[0],
-                        original_name=row[1],
-                        original_size=row[2],
-                        encrypted_size=row[3],
-                        encryption_timestamp=row[4],
-                        encryption_algorithm=row[5],
-                        key_id=row[6],
-                        iv=row[7],
-                        integrity_hash=row[8],
-                        compression_used=bool(row[9]),
-                        compression_algorithm=row[10],
-                        shares_total=row[11],
-                        shares_threshold=row[12],
-                        tags=json.loads(row[13]) if row[13] else None,
-                        custom_metadata=json.loads(row[14]) if row[14] else None
-                    )
+                    metadata = self._deserialize_metadata_row(row)
 
-                    if tags and metadata.tags:
-                        if any(tag in metadata.tags for tag in tags):
+                    if tags:
+                        if metadata.tags and any(tag in metadata.tags for tag in tags):
                             results.append(metadata)
-                    elif not tags:
+                    else:
+                        results.append(metadata)
+
+                return results
+        except sqlite3.Error as exc:
+            print(f"Database error: {exc}")
+            if conn and conn.in_transaction:
+                conn.rollback()
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -776,16 +966,17 @@ class MetadataManager:
 
             cursor.execute(query, params)
 
-            results = []
+            results: List[FileMetadata] = []
             for row in cursor.fetchall():
                 metadata = self._deserialize_metadata_row(row)
 
-                # Filter by tags if specified
-                if tags and metadata.tags:
-                    if any(tag in metadata.tags for tag in tags):
+                if tags:
+                    if metadata.tags and any(tag in metadata.tags for tag in tags):
                         results.append(metadata)
+                else:
+                    results.append(metadata)
 
-                return results
+            return results
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -918,24 +1109,12 @@ class MetadataManager:
 
                 results: List[FileMetadata] = []
                 for row in cursor.fetchall():
-                    metadata = FileMetadata(
-                        file_id=row[0],
-                        original_name=row[1],
-                        original_size=row[2],
-                        encrypted_size=row[3],
-                        encryption_timestamp=row[4],
-                        encryption_algorithm=row[5],
-                        key_id=row[6],
-                        iv=row[7],
-                        integrity_hash=row[8],
-                        compression_used=bool(row[9]),
-                        compression_algorithm=row[10],
-                        shares_total=row[11],
-                        shares_threshold=row[12],
-                        tags=json.loads(row[13]) if row[13] else None,
-                        custom_metadata=json.loads(row[14]) if row[14] else None
-                    )
-                    results.append(metadata)
+                    results.append(self._deserialize_metadata_row(row))
+                return results
+        except sqlite3.Error as exc:
+            print(f"Database error: {exc}")
+            if conn and conn.in_transaction:
+                conn.rollback()
         conn = self._get_connection()
         limit, offset = self._sanitize_pagination(limit, offset)
 
@@ -949,11 +1128,11 @@ class MetadataManager:
                 LIMIT ? OFFSET ?
             ''', (limit, offset))
 
-            results = []
+            results: List[FileMetadata] = []
             for row in cursor.fetchall():
                 results.append(self._deserialize_metadata_row(row))
 
-                return results
+            return results
 
         except sqlite3.Error as e:
             print(f"Database error: {e}")
@@ -996,6 +1175,9 @@ class MetadataManager:
 
     def _deserialize_metadata_row(self, row: Tuple[Any, ...]) -> FileMetadata:
         """Convert a database row into a FileMetadata object."""
+        tags_value = row[13]
+        tags = json.loads(tags_value) if tags_value else None
+
         return FileMetadata(
             file_id=row[0],
             original_name=row[1],
@@ -1004,14 +1186,14 @@ class MetadataManager:
             encryption_timestamp=row[4],
             encryption_algorithm=row[5],
             key_id=row[6],
-            iv=row[7],
-            integrity_hash=row[8],
+            iv=self._decrypt_field('iv', row[7]),
+            integrity_hash=self._decrypt_field('integrity_hash', row[8]),
             compression_used=bool(row[9]),
             compression_algorithm=row[10],
-            shares_total=row[11],
-            shares_threshold=row[12],
-            tags=json.loads(row[13]) if row[13] else None,
-            custom_metadata=json.loads(row[14]) if row[14] else None
+            shares_total=self._decrypt_field('shares_total', row[11]),
+            shares_threshold=self._decrypt_field('shares_threshold', row[12]),
+            tags=tags,
+            custom_metadata=self._decrypt_field('custom_metadata', row[14])
         )
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -1076,6 +1258,13 @@ class MetadataManager:
 
         if hasattr(self, "_pool"):
             self._pool.close()
+
+        if hasattr(self, "_encryption_key") and isinstance(self._encryption_key, bytearray):
+            secure_wipe(self._encryption_key)
+
+        if getattr(self, "_guard_secret", None):
+            secure_wipe(bytearray(self._guard_secret))
+            self._guard_secret = None
 
     def export_metadata(self, output_path: Path) -> bool:
         """

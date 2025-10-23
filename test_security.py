@@ -226,7 +226,6 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
                 }):
-                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
             logger = AuditLogger(
@@ -283,7 +282,6 @@ class TestAuditLoggerSanitization(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-audit-wrap",
                 }):
-                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             log_dir = os.path.join(tmpdir, 'logs')
             auth_db_path = os.path.join(tmpdir, 'users.db')
             logger = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
@@ -318,14 +316,14 @@ class TestAuditLoggerSanitization(unittest.TestCase):
             reopened = AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
             try:
                 self.assertEqual(reopened._last_hash, first_hash)
-            reopened.log_event(
-                AuditEventType.SYSTEM_START,
-                AuditSeverity.INFO,
-                "restarted",
-                {},
-            )
-        finally:
-            reopened.close()
+                reopened.log_event(
+                    AuditEventType.SYSTEM_START,
+                    AuditSeverity.INFO,
+                    "restarted",
+                    {},
+                )
+            finally:
+                reopened.close()
 
     def test_audit_missing_chain_detected(self):
         with tempfile.TemporaryDirectory() as tmpdir, \
@@ -367,14 +365,6 @@ class TestAuditLoggerSanitization(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 AuditLogger(log_dir=log_dir, auth_db_path=auth_db_path)
-                reopened.log_event(
-                    AuditEventType.SYSTEM_START,
-                    AuditSeverity.INFO,
-                    "restarted",
-                    {},
-                )
-            finally:
-                reopened.close()
 
 
 class TestErrorHandlingSanitization(unittest.TestCase):
@@ -444,6 +434,13 @@ class TestAccessControlIntegration(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self.temp_dir.name, "metadata.db")
+        state_dir = os.path.join(self.temp_dir.name, "state")
+        os.makedirs(state_dir, exist_ok=True)
+        previous_state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+        previous_wrap = os.environ.get("SECURE_VAULT_GUARD_WRAP_SECRET")
+        os.environ["SECURE_VAULT_STATE_DIR"] = state_dir
+        os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "access-control-wrap"
+        self.addCleanup(self._restore_env, previous_state_dir, previous_wrap)
         self.metadata_manager = MetadataManager(db_path=self.db_path)
         self.access_control = AccessControl(self.metadata_manager)
 
@@ -466,6 +463,18 @@ class TestAccessControlIntegration(unittest.TestCase):
 
         self.metadata_manager.add_file_metadata(metadata)
         self.access_control.register_owner(self.file_id, self.owner_id)
+
+    @staticmethod
+    def _restore_env(previous_state_dir, previous_wrap):
+        if previous_state_dir is None:
+            os.environ.pop("SECURE_VAULT_STATE_DIR", None)
+        else:
+            os.environ["SECURE_VAULT_STATE_DIR"] = previous_state_dir
+
+        if previous_wrap is None:
+            os.environ.pop("SECURE_VAULT_GUARD_WRAP_SECRET", None)
+        else:
+            os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = previous_wrap
 class TestPINManagerTiming(unittest.TestCase):
     """Timing tests to ensure PIN-based decryption remains constant time."""
 

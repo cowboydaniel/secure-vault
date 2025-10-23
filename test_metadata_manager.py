@@ -2,6 +2,7 @@
 
 import os
 import time
+
 import pytest
 
 from metadata_manager import MetadataManager, FileMetadata
@@ -9,6 +10,10 @@ from metadata_manager import MetadataManager, FileMetadata
 
 def _create_manager(tmp_path):
     db_path = tmp_path / "metadata.db"
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["SECURE_VAULT_STATE_DIR"] = str(state_dir)
+    os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "metadata-test-wrap"
     return MetadataManager(db_path=str(db_path))
 
 

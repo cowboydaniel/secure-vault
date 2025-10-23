@@ -411,26 +411,28 @@ class FileBasedHSMSession(HSMSession):
             'key_id': key_id,
             'key_type': key_type,
             'key_data': self._encrypt_key_material(key_id, key_type, key_data),
-            'extractable': extractable,
+            'extractable': bool(extractable),
             'created_at': int(time.time())
         }
 
-        # Create HSMKey object
+        public_data = key_data if extractable else None
+
         key = HSMKey(
             key_id=key_id,
             key_type=key_type,
-            public_data=key_data,  # For symmetric keys, store as public_data
+            public_data=public_data,
             attributes={'extractable': extractable, 'created_at': key_info['created_at']}
         )
 
-        # Store the key (in a real HSM, the key would never leave the device)
         key_file = self.keys_dir / f"{key_id}.json"
         with open(key_file, 'w') as f:
             json.dump(key_info, f)
         os.chmod(key_file, 0o600)
 
-        # Cache in memory
         self.keys[key_id] = key_info
+
+        if not extractable:
+            secure_wipe(bytearray(key_data))
 
         return key
     
@@ -473,7 +475,20 @@ class FileBasedHSMSession(HSMSession):
             logger.error(f"Failed to store key {key_id}: {e}")
             return False
             
-    def retrieve_key(self, key_id: str) -> Optional[bytes]:
+    def _load_key_record(self, key_id: str) -> Optional[Dict[str, Any]]:
+        if key_id in self.keys:
+            return self.keys[key_id]
+
+        key_path = self.keys_dir / f"{key_id}.json"
+        if not key_path.exists():
+            return None
+
+        with open(key_path, 'r') as handle:
+            key_data = json.load(handle)
+        self.keys[key_id] = key_data
+        return key_data
+
+    def retrieve_key(self, key_id: str, *, allow_non_extractable: bool = False) -> Optional[bytes]:
         """
         Retrieve key data from the HSM
         
@@ -484,28 +499,21 @@ class FileBasedHSMSession(HSMSession):
             bytes: The key data, or None if not found
         """
         try:
-            if key_id in self.keys:
-                key_data = self.keys[key_id]
-                if 'key_data' in key_data:
-                    return self._decrypt_key_material(
-                        key_data['key_id'],
-                        key_data.get('key_type', 'GENERIC'),
-                        key_data['key_data']
-                    )
-                    
-            # Try to load from file if not in memory
-            key_path = self.keys_dir / f"{key_id}.json"
-            if key_path.exists():
-                with open(key_path, 'r') as f:
-                    key_data = json.load(f)
-                    self.keys[key_id] = key_data  # Cache it
-                    return self._decrypt_key_material(
-                        key_data['key_id'],
-                        key_data.get('key_type', 'GENERIC'),
-                        key_data['key_data']
-                    )
-                    
-            return None
+            key_data = self._load_key_record(key_id)
+            if not key_data or 'key_data' not in key_data:
+                return None
+
+            if not key_data.get('extractable', False) and not allow_non_extractable:
+                logger.warning(
+                    "Attempt to extract non-extractable key '%s' was blocked", key_id
+                )
+                return None
+
+            return self._decrypt_key_material(
+                key_data['key_id'],
+                key_data.get('key_type', 'GENERIC'),
+                key_data['key_data']
+            )
             
         except Exception as e:
             logger.error(f"Failed to retrieve key {key_id}: {e}")
@@ -522,21 +530,12 @@ class FileBasedHSMSession(HSMSession):
             HSMKey: The key object, or None if not found
         """
         try:
-            if key_id in self.keys:
-                key_data = self.keys[key_id]
-            else:
-                # Try to load from file if not in memory
-                key_path = self.keys_dir / f"{key_id}.json"
-                if not key_path.exists():
-                    return None
+            key_data = self._load_key_record(key_id)
+            if not key_data:
+                return None
 
-                with open(key_path, 'r') as f:
-                    key_data = json.load(f)
-                    self.keys[key_id] = key_data  # Cache it
-
-            # Convert to HSMKey object
             public_data = None
-            if key_data.get('key_data'):
+            if key_data.get('key_data') and key_data.get('extractable', False):
                 try:
                     public_data = self._decrypt_key_material(
                         key_data['key_id'],
@@ -547,11 +546,15 @@ class FileBasedHSMSession(HSMSession):
                     logger.error(f"Failed to decrypt key {key_id}: {exc}")
                     public_data = None
 
+            attributes = dict(key_data.get('metadata', {}))
+            attributes['extractable'] = key_data.get('extractable', False)
+            attributes['created_at'] = key_data.get('created_at')
+
             return HSMKey(
                 key_id=key_data['key_id'],
                 key_type=key_data.get('key_type', 'GENERIC'),
                 public_data=public_data,
-                attributes=key_data.get('metadata', {})
+                attributes=attributes
             )
 
         except Exception as e:
@@ -585,7 +588,7 @@ class FileBasedHSMSession(HSMSession):
         from Crypto.Random import get_random_bytes
         
         # Get the key
-        key = self.retrieve_key(key_id)
+        key = self.retrieve_key(key_id, allow_non_extractable=True)
         if not key:
             raise HSMOperationError(f"Key {key_id} not found")
             
@@ -615,7 +618,7 @@ class FileBasedHSMSession(HSMSession):
         from Crypto.Util.Padding import unpad
         
         # Get the key
-        key = self.retrieve_key(key_id)
+        key = self.retrieve_key(key_id, allow_non_extractable=True)
         if not key:
             raise HSMOperationError(f"Key {key_id} not found")
             
@@ -650,7 +653,7 @@ class FileBasedHSMSession(HSMSession):
         from Crypto.PublicKey import RSA
         
         # Get the key
-        key_data = self.retrieve_key(key_id)
+        key_data = self.retrieve_key(key_id, allow_non_extractable=True)
         if not key_data:
             raise HSMOperationError(f"Key {key_id} not found")
             
@@ -671,7 +674,7 @@ class FileBasedHSMSession(HSMSession):
         from Crypto.PublicKey import RSA
         
         # Get the key
-        key_data = self.retrieve_key(key_id)
+        key_data = self.retrieve_key(key_id, allow_non_extractable=True)
         if not key_data:
             raise HSMOperationError(f"Key {key_id} not found")
             

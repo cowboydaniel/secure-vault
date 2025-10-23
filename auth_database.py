@@ -219,11 +219,9 @@ class AuthDatabase:
     """
 
     INSTANCE_SECRET_KEY = "instance_secret"
+    _registered_cleanup_paths: set[str] = set()
 
     def __init__(self, db_path: Optional[str] = None, *, pool_size: int = 5):
-    _registered_cleanup_paths = set()
-
-    def __init__(self, db_path: Optional[str] = None):
         """
         Initialize authentication database.
 
@@ -600,8 +598,6 @@ class AuthDatabase:
 
         if hasattr(self, "_pool"):
             self._pool.close()
-            self.connection.close()
-            self.connection = None
         self.cleanup()
 
     def cleanup(self) -> None:

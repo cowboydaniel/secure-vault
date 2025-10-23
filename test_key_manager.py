@@ -70,11 +70,13 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
 
     def test_keys_encrypted_on_disk_and_round_trip(self) -> None:
         key_id, _ = self.km.generate_key(KeyType.SYMMETRIC, key_size=32)
-        key_bytes = self.km._hsm.retrieve_key(key_id)
+        self.assertIsNone(
+            self.km._hsm.retrieve_key(key_id),
+            "Non-extractable keys must not be exportable by default",
+        )
+        key_bytes = self.km._hsm.retrieve_key(key_id, allow_non_extractable=True)
         self.assertIsNotNone(key_bytes)
-        if key_bytes is None:
-            self.fail("retrieve_key returned None for generated key")
-
+        
         key_path = Path(self.keys_dir) / f"{key_id}.json"
         with open(key_path, "r", encoding="utf-8") as key_file:
             file_data = json.load(key_file)
@@ -87,7 +89,7 @@ class KeyManagerConcurrencyTests(unittest.TestCase):
         # Simulate fresh session by reloading the key manager
         self.km.close()
         self.km = KeyManager(self.config)
-        reloaded = self.km._hsm.retrieve_key(key_id)
+        reloaded = self.km._hsm.retrieve_key(key_id, allow_non_extractable=True)
         self.assertEqual(reloaded, key_bytes)
 
         stored_payload = b"stored-key-material"
@@ -108,7 +110,6 @@ class TestFileBasedHSMSecretWrapping(unittest.TestCase):
                     "SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state"),
                     "SECURE_VAULT_GUARD_WRAP_SECRET": "test-hsm-wrap",
                 }):
-                mock.patch.dict(os.environ, {"SECURE_VAULT_STATE_DIR": os.path.join(tmpdir, "state")}):
             keys_dir = Path(tmpdir) / "keys"
             metadata_file = Path(tmpdir) / "metadata.json"
             auth_db_path = Path(tmpdir) / "users.db"
@@ -137,14 +138,18 @@ class TestFileBasedHSMSecretWrapping(unittest.TestCase):
                 self.assertIn("ciphertext", payload)
                 self.assertNotIn(encoded_secret, file_contents)
 
-                original_key = key_manager._hsm.retrieve_key(key_id)
+                original_key = key_manager._hsm.retrieve_key(
+                    key_id, allow_non_extractable=True
+                )
                 self.assertIsNotNone(original_key)
             finally:
                 key_manager.close()
 
             reopened = KeyManager(config)
             try:
-                reloaded_key = reopened._hsm.retrieve_key(key_id)
+                reloaded_key = reopened._hsm.retrieve_key(
+                    key_id, allow_non_extractable=True
+                )
                 self.assertEqual(reloaded_key, original_key)
             finally:
                 reopened.close()
