@@ -14,9 +14,22 @@ try:
 except ImportError as exc:  # pragma: no cover - environment-specific skip
     pytest.skip(f"PyQt6 unavailable: {exc}", allow_module_level=True)
 
-from auth_manager import AuthManager
+from auth_manager import AuthManager, InvalidCredentialsError
 from config import default_config
 from LINUX_GUI.ui.dialogs.login_dialog import LoginDialog
+
+
+class _StubPinManager:
+    def hash_email_for_lookup(self, email: str) -> bytes:
+        return email.encode("utf-8")
+
+
+class _StubAuthManager:
+    def __init__(self):
+        self.pin_manager = _StubPinManager()
+
+    def authenticate_with_pin(self, email: str, pin: str):  # pragma: no cover - invoked via GUI slot
+        raise InvalidCredentialsError()
 
 
 def _qt_app() -> QApplication:
@@ -49,3 +62,14 @@ def test_login_dialog_pin_pad_accessibility(qt_app) -> None:
 
     assert dialog.pin_edit.accessibleName() == "PIN entry"
     assert "keypad" in dialog.pin_pad.accessibleDescription().lower()
+
+
+def test_login_dialog_invalid_credentials_shows_error(qt_app) -> None:
+    dialog = LoginDialog(auth_manager=_StubAuthManager())
+    dialog.email_edit.setText("user@example.com")
+    dialog.pin_edit.setText("000000")
+
+    dialog.accept()
+
+    assert dialog.error_label.isVisible()
+    assert "invalid email or pin" in dialog.error_label.text().lower()

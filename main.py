@@ -27,6 +27,7 @@ from typing import Optional, Dict, Any, TYPE_CHECKING
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import default_config, LOGGING_CONFIG, VERSION, BUILD_DATE
+from cli_config import apply_cli_configuration, CLIConfigurationError
 from entropy_monitor import start_monitoring, stop_monitoring, get_health_status, EntropySource
 from entropy_pool import entropy_accumulator, get_random_bytes
 from pipeline import MultiLayerPipeline, PipelineConfiguration
@@ -50,6 +51,14 @@ from platform_parity import PlatformIntegrationManager
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from auth_manager import AuthManager, AuthSession
     from access_control import AccessControl
+
+
+def render_cli_error(message: str, hint: Optional[str] = None) -> None:
+    """Render a formatted CLI error message with an optional hint."""
+
+    print(f"\n❌ {message}")
+    if hint:
+        print(f"   💡 {hint}")
 
 def setup_logging(verbose: bool = False):
     """Setup logging configuration"""
@@ -500,21 +509,27 @@ def decrypt_file_interactive(
 def encrypt_file_interactive(
     session: Optional["AuthSession"] = None,
     auth_manager: Optional["AuthManager"] = None,
+    file_path: Optional[str] = None,
+    total_shares: Optional[int] = None,
+    threshold: Optional[int] = None,
 ):
-    """Interactive file encryption"""
+    """Interactive file encryption with optional CLI overrides."""
     print("\n📁 FILE ENCRYPTION")
     print("=" * 50)
     
     # Get file path
-    file_path = input("\nEnter file path to encrypt: ").strip('"\'')
+    if file_path is None:
+        file_path = input("\nEnter file path to encrypt: ").strip('"\'')
+    else:
+        file_path = file_path.strip('"\'')
 
     try:
         file_size = validate_input_file(file_path, DEFAULT_MAX_INPUT_SIZE_BYTES)
     except FileNotFoundError as exc:
-        print(f"Error: {exc}")
+        render_cli_error(str(exc), "Verify the path and file permissions.")
         return False
     except InputFileValidationError as exc:
-        print(f"Error: {exc}")
+        render_cli_error(str(exc))
         return False
 
     print(f"\nFile: {file_path}")
@@ -522,26 +537,44 @@ def encrypt_file_interactive(
     
     # Get encryption parameters
     try:
-        total_shares = int(input("\nTotal shares to create (3-255) [5]: ") or "5")
-        threshold = int(input("Minimum shares needed (2-{}) [3]: ".format(min(total_shares, 10))) or "3")
-        
-        if total_shares < 3 or total_shares > 255:
-            print("Total shares must be between 3 and 255")
+        total_shares_value = (
+            total_shares
+            if total_shares is not None
+            else int(input("\nTotal shares to create (3-255) [5]: ") or "5")
+        )
+        threshold_value = (
+            threshold
+            if threshold is not None
+            else int(
+                input(
+                    "Minimum shares needed (2-{}) [3]: ".format(
+                        min(total_shares_value, 10)
+                    )
+                )
+                or "3"
+            )
+        )
+
+        if total_shares_value < 3 or total_shares_value > 255:
+            render_cli_error("Total shares must be between 3 and 255.")
             return False
-            
-        if threshold < 2 or threshold > total_shares:
-            print(f"Threshold must be between 2 and {total_shares}")
+
+        if threshold_value < 2 or threshold_value > total_shares_value:
+            render_cli_error(
+                f"Threshold must be between 2 and {total_shares_value}.",
+                "Adjust --threshold or accept the interactive default.",
+            )
             return False
-            
+
     except ValueError:
-        print("Invalid input. Please enter valid numbers.")
+        render_cli_error("Invalid input. Please enter valid numbers.")
         return False
-    
+
     # Initialize pipeline
     config = PipelineConfiguration(
         ida_config=IDAConfiguration(
-            total_shares=total_shares,
-            threshold=threshold,
+            total_shares=total_shares_value,
+            threshold=threshold_value,
             field_polynomial=0x1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a7  # x^512 + x^8 + x^5 + x^2 + 1
         ),
         otp_config=OTPConfiguration(),
@@ -581,7 +614,7 @@ def encrypt_file_interactive(
         print(f"Throughput: {throughput:.1f} MB/s")
         print(f"Shares created: {len(result.encrypted_shares)}")
         print(f"Security level: {result.security_analysis['overall_assessment']}")
-        
+
         print(f"\nLayer Results:")
         for layer_result in result.layer_results:
             status_icon = "✅" if layer_result.status.value == "completed" else "❌"
@@ -1268,22 +1301,77 @@ def main():
     """Main application entry point"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description='Secure Vault - 512-bit Multi-Layer Encryption System'
+        description='Secure Vault - 512-bit Multi-Layer Encryption System',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog='See docs/CLI_GUIDE.md for advanced usage and automation tips.'
     )
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('--version', action='store_true', help='Show version and exit')
+    parser.add_argument(
+        '-c',
+        '--config',
+        metavar='PATH',
+        help='Load CLI configuration from a JSON, TOML, or INI file before executing commands.',
+    )
+    parser.add_argument(
+        '--no-banner',
+        action='store_true',
+        help='Skip the startup banner and capability checks for scripted usage.',
+    )
 
-    subparsers = parser.add_subparsers(dest='command')
+    subparsers = parser.add_subparsers(dest='command', metavar='COMMAND')
 
-    subparsers.add_parser('encrypt', help='Encrypt a file interactively')
-    subparsers.add_parser('decrypt', help='Decrypt a file interactively')
+    encrypt_parser = subparsers.add_parser(
+        'encrypt',
+        help='Encrypt a file interactively or via arguments',
+        description='Encrypt sensitive material using the full 5-layer pipeline.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    encrypt_parser.add_argument(
+        '-i',
+        '--input',
+        metavar='FILE',
+        help='File to encrypt. When omitted the CLI prompts interactively.',
+    )
+    encrypt_parser.add_argument(
+        '--shares',
+        type=int,
+        help='Total number of shares to generate (3-255).',
+    )
+    encrypt_parser.add_argument(
+        '--threshold',
+        type=int,
+        help='Minimum shares required to decrypt (2 <= threshold <= shares).',
+    )
 
-    list_parser = subparsers.add_parser('list', help='List encrypted files')
+    subparsers.add_parser(
+        'decrypt',
+        help='Decrypt a file interactively',
+        description='Restore encrypted data. Prompts for share selection and destination.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    list_parser = subparsers.add_parser(
+        'list',
+        help='List encrypted files',
+        description='Display encrypted files discoverable in the secure storage directory.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     list_parser.add_argument('--directory', help='Directory containing encrypted shares')
 
-    subparsers.add_parser('status', help='Show system status')
+    subparsers.add_parser(
+        'status',
+        help='Show system status',
+        description='Summarise entropy health, RNG availability, and secure storage state.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
-    share_parser = subparsers.add_parser('share', help='Share a file with another user')
+    share_parser = subparsers.add_parser(
+        'share',
+        help='Share a file with another user',
+        description='Delegate file access to another SecureVault user with precise permissions.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     share_parser.add_argument('file_id', help='Identifier of the file to share')
     share_parser.add_argument('email', help='Email of the user to grant access to')
     share_parser.add_argument(
@@ -1293,7 +1381,12 @@ def main():
         help='Permission level to grant',
     )
 
-    revoke_parser = subparsers.add_parser('revoke', help='Revoke access from a user')
+    revoke_parser = subparsers.add_parser(
+        'revoke',
+        help='Revoke access from a user',
+        description='Remove delegated access from a collaborator.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     revoke_parser.add_argument('file_id', help='Identifier of the file to revoke')
     revoke_parser.add_argument('email', help='Email of the user to revoke')
     revoke_parser.add_argument(
@@ -1303,7 +1396,12 @@ def main():
         help='Permission to revoke (default: all permissions)',
     )
 
-    benchmark_parser = subparsers.add_parser('benchmark', help='Run system benchmarks')
+    benchmark_parser = subparsers.add_parser(
+        'benchmark',
+        help='Run system benchmarks',
+        description='Execute individual layer benchmarks or the full sequential suite.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     benchmark_parser.add_argument('--all', action='store_true', help='Run all benchmarks sequentially')
     benchmark_parser.add_argument('--entropy', action='store_true', help='Run entropy benchmark')
     benchmark_parser.add_argument('--gf', action='store_true', help='Run Galois field benchmark')
@@ -1313,14 +1411,26 @@ def main():
     benchmark_parser.add_argument('--cipher', action='store_true', help='Run custom cipher benchmark')
     benchmark_parser.add_argument('--storage', action='store_true', help='Run storage benchmark')
     args = parser.parse_args()
-    
+
     # Show version and exit if requested
     if args.version:
         print(f"Secure Vault v{VERSION} (Build: {BUILD_DATE})")
         return 0
-    
+
+    applied_overrides = []
+    if args.config:
+        try:
+            applied_overrides = apply_cli_configuration(args.config)
+        except CLIConfigurationError as exc:
+            render_cli_error(str(exc), "Ensure the configuration path and syntax are valid.")
+            return 2
+
     # Setup logging
     setup_logging(verbose=args.verbose)
+    if applied_overrides:
+        logging.getLogger('secure_vault').info(
+            "Applied configuration overrides: %s", ", ".join(applied_overrides)
+        )
 
     platform_manager = PlatformIntegrationManager(
         app_name="SecureVault",
@@ -1332,9 +1442,10 @@ def main():
     atexit.register(stop_monitoring)
     
     try:
-        # Print banner and check requirements
-        print_banner()
-        check_system_requirements()
+        # Print banner and check requirements unless suppressed for automation
+        if not args.no_banner:
+            print_banner()
+            check_system_requirements()
 
         # Start entropy monitoring and accumulator
         # Note: start_monitoring() will also start the accumulator
@@ -1368,6 +1479,9 @@ def main():
             success = encrypt_file_interactive(
                 session=session,
                 auth_manager=authenticator.auth_manager,
+                file_path=args.input,
+                total_shares=args.shares,
+                threshold=args.threshold,
             )
             return 0 if success else 1
         elif args.command == 'decrypt':
@@ -1387,7 +1501,10 @@ def main():
         elif args.command == 'share':
             target_user = authenticator.user_manager.get_user_by_email(args.email)
             if not target_user:
-                print(f"❌ No user registered with email {args.email}")
+                render_cli_error(
+                    f"No user registered with email {args.email}",
+                    "Confirm the recipient has completed onboarding.",
+                )
                 return 1
 
             permission = PermissionLevel(args.permission)
@@ -1399,7 +1516,7 @@ def main():
                     permission,
                 )
             except PermissionDeniedError as exc:
-                print(f"❌ Unable to grant access: {exc}")
+                render_cli_error(str(exc), "Check the current delegation policy for this file.")
                 return 1
 
             print(
@@ -1409,7 +1526,10 @@ def main():
         elif args.command == 'revoke':
             target_user = authenticator.user_manager.get_user_by_email(args.email)
             if not target_user:
-                print(f"❌ No user registered with email {args.email}")
+                render_cli_error(
+                    f"No user registered with email {args.email}",
+                    "Confirm the recipient email matches the delegated account.",
+                )
                 return 1
 
             permissions = None
@@ -1424,7 +1544,7 @@ def main():
                     permissions,
                 )
             except PermissionDeniedError as exc:
-                print(f"❌ Unable to revoke access: {exc}")
+                render_cli_error(str(exc), "Verify that you are the resource owner or admin.")
                 return 1
 
             action_desc = 'all permissions' if permissions is None else permissions[0].value

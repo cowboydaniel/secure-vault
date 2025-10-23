@@ -9,7 +9,7 @@ ensuring consistent 512-bit security standards throughout.
 import os
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Iterable, List, Mapping, Optional
 
 # 512-bit Security Standards
 SECURITY_LEVEL_BITS = 512
@@ -206,8 +206,61 @@ PROTOCOL_VERSION = 1
 default_config = SystemConfig()
 
 def get_config() -> SystemConfig:
-    """Get the default system configuration"""
+    """Get the default system configuration."""
     return default_config
+
+
+def apply_configuration_overrides(overrides: Mapping[str, Any]) -> List[str]:
+    """Apply configuration overrides loaded from an external source.
+
+    The function accepts a mapping containing optional "system", "storage",
+    and "security" sections. Recognised values are applied to the global
+    configuration objects and missing sections are ignored. Unknown fields are
+    skipped to keep forward compatibility.
+
+    Args:
+        overrides: Structured overrides loaded from a configuration file.
+
+    Returns:
+        List of dot-separated keys that were applied. The caller can surface
+        this to the user for diagnostics and audit trails.
+    """
+
+    if not overrides:
+        return []
+
+    applied: List[str] = []
+
+    system_overrides = overrides.get("system", {}) if isinstance(overrides, Mapping) else {}
+    if isinstance(system_overrides, Mapping):
+        for key in ("config_dir", "log_dir", "temp_dir", "debug_mode", "verbose_logging", "development_mode"):
+            if key in system_overrides:
+                setattr(default_config, key, system_overrides[key])
+                applied.append(f"system.{key}")
+
+        # Ensure updated directories exist
+        default_config.__post_init__()
+
+    storage_overrides = overrides.get("storage", {}) if isinstance(overrides, Mapping) else {}
+    if isinstance(storage_overrides, Mapping):
+        extra_dirs = storage_overrides.get("extra_safe_directories")
+        if isinstance(extra_dirs, Iterable) and not isinstance(extra_dirs, (str, bytes)):
+            StorageConfig.EXTRA_SAFE_DIRECTORIES = [str(path) for path in extra_dirs]
+            applied.append("storage.extra_safe_directories")
+
+        compression = storage_overrides.get("compression_enabled")
+        if isinstance(compression, bool):
+            StorageConfig.COMPRESSION_ENABLED = compression
+            applied.append("storage.compression_enabled")
+
+    security_overrides = overrides.get("security", {}) if isinstance(overrides, Mapping) else {}
+    if isinstance(security_overrides, Mapping):
+        for key in ("auto_lock_timeout", "max_login_attempts"):
+            if key in security_overrides and hasattr(SecurityConfig, key.upper()):
+                setattr(SecurityConfig, key.upper(), security_overrides[key])
+                applied.append(f"security.{key}")
+
+    return applied
 
 def validate_512bit_alignment(size: int) -> bool:
     """Validate that size is properly aligned to 512-bit boundaries"""

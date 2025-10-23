@@ -47,9 +47,11 @@ _Status:_ Completed via expanded entropy collectors and benchmarking helpers (`e
 _Status:_ Completed via the platform parity service (`platform_parity.py`), CLI keychain integration (`cli_session_store.py`), and startup wiring in `main.py`, providing native taskbar/dock hooks, OS keychain storage, and dialog fallbacks that align Windows and macOS behavior with Linux.
 
 ### 1.4 CLI UX & Documentation
-- [ ] Provide comprehensive CLI help, configuration file support, progress indicators, and clearer error reporting.
-- [ ] Complete user, developer, and API documentation alongside accessibility, localization/i18n, and screen-capture protection guidance.
-- [ ] Strengthen UI automation and regression coverage.
+- [x] Provide comprehensive CLI help, configuration file support, progress indicators, and clearer error reporting.
+- [x] Complete user, developer, and API documentation alongside accessibility, localization/i18n, and screen-capture protection guidance.
+- [x] Strengthen UI automation and regression coverage.
+
+_Status:_ Completed through the new CLI configuration loader and enriched help output (`cli_config.py`, `main.py`), expanded documentation (`docs/CLI_GUIDE.md`, updated `docs/README.md`), and additional GUI regression coverage verifying error accessibility (`tests/test_gui_regression.py`).
 
 ## 2. Release-Blocking Defects
 The following defects must be addressed before a production cut:
