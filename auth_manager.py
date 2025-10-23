@@ -42,6 +42,7 @@ from instance_guard import TamperDetectedError
 from error_handling import wrap_exception
 from auth_queue import AuthQueue
 from audit_logger import AuditEventType, AuditSeverity, get_audit_logger
+from mfa_manager import MFAManager, MFAResponse, MFAChallenge, MFAChallengeError
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,18 @@ class SessionExpiredError(AuthenticationError):
 class SystemLockdownError(AuthenticationError):
     """Raised when the authentication subsystem has been locked down."""
     pass
+
+
+class MFARequiredError(AuthenticationError):
+    """Raised when MFA verification is required to complete authentication."""
+
+    def __init__(self, challenge: MFAChallenge):
+        super().__init__(challenge.prompt)
+        self.challenge = challenge
+
+
+class SessionLockedError(AuthenticationError):
+    """Raised when an operation is attempted on a locked session."""
 
 
 class SessionSecret:
@@ -163,14 +176,14 @@ class AuthSession:
         """
         self.session_id = session_id
         self.user_id = user_id
-        self._secret = SessionSecret(master_key)
+        self._secret: Optional[SessionSecret] = SessionSecret(master_key)
         self.created_at = created_at
         self.expires_at = expires_at
         self.last_activity = datetime.now()
-        self._lock = lock or threading.Lock()
-        self._lock: Lock = Lock()
+        self._lock: Lock = lock if lock is not None else Lock()
         self.ip_address = ip_address
         self.user_agent = user_agent
+        self.locked = False
 
     @contextmanager
     def master_key(self) -> Iterator[bytearray]:
@@ -178,39 +191,22 @@ class AuthSession:
 
         Raises:
             SessionExpiredError: If session has expired
+            SessionLockedError: If session is locked
         """
         with self._lock:
             if self.is_expired():
                 raise SessionExpiredError("Session has expired")
 
-            if self._master_key is None:
-                raise SessionExpiredError("Session has ended")
+            if self.locked:
+                raise SessionLockedError("Session is locked")
+
+            secret = self._secret
+            if secret is None or not secret.is_available():
+                raise SessionExpiredError("Session secret is no longer available")
 
             self.last_activity = datetime.now()
-            return bytes(self._master_key)
-        now = datetime.now()
-        if now >= self.expires_at:
-            raise SessionExpiredError("Session has expired")
 
-        with self._lock:
-            now = datetime.now()
-            if now >= self.expires_at:
-                raise SessionExpiredError("Session has expired")
-
-            if self._master_key is None:
-                raise SessionExpiredError("Session is closed")
-
-            self.last_activity = now
-            return bytes(self._master_key)
-        if self.is_expired():
-            raise SessionExpiredError("Session has expired")
-
-        if self._secret is None or not self._secret.is_available():
-            raise SessionExpiredError("Session secret is no longer available")
-
-        self.last_activity = datetime.now()
-
-        with self._secret.access() as buffer:
+        with secret.access() as buffer:
             yield buffer
 
     def get_master_key(self) -> bytes:
@@ -233,12 +229,10 @@ class AuthSession:
     def close(self):
         """Close session and wipe master key from memory"""
         with self._lock:
-            if self._master_key:
-                secure_wipe(self._master_key)
-                self._master_key = None
-        if self._secret is not None:
-            self._secret.zeroize()
-            self._secret = None
+            if self._secret is not None:
+                self._secret.zeroize()
+                self._secret = None
+            self.locked = True
 
     def __del__(self):
         """Ensure master key is wiped when session is garbage collected"""
@@ -247,7 +241,28 @@ class AuthSession:
     def has_master_key(self) -> bool:
         """Return True if the session still retains a master key."""
 
-        return self._secret is not None and self._secret.is_available()
+        return (
+            not self.locked
+            and self._secret is not None
+            and self._secret.is_available()
+        )
+
+    def lock_session(self) -> None:
+        """Lock the session by wiping the in-memory master key."""
+
+        with self._lock:
+            if self._secret is not None:
+                self._secret.zeroize()
+                self._secret = None
+            self.locked = True
+
+    def unlock_session(self, master_key: bytes) -> None:
+        """Restore the master key and mark the session unlocked."""
+
+        with self._lock:
+            self._secret = SessionSecret(master_key)
+            self.locked = False
+            self.last_activity = datetime.now()
 
 
 class AuthManager:
@@ -301,6 +316,8 @@ class AuthManager:
             metrics_log_interval=self.config.argon_metrics_log_interval,
         )
 
+        self.mfa_manager = MFAManager()
+
         # Active sessions (in-memory)
         self._sessions: Dict[str, AuthSession] = {}
         self._session_locks: DefaultDict[str, threading.Lock] = defaultdict(threading.Lock)
@@ -320,7 +337,7 @@ class AuthManager:
         *,
         device_fingerprint: Optional[str] = None,
         user_agent: Optional[str] = None,
-        user_agent: Optional[str] = None
+        mfa_response: Optional[MFAResponse] = None,
     ) -> AuthSession:
         """
         Authenticate user with email + PIN.
@@ -343,7 +360,7 @@ class AuthManager:
             ip_address: IP address of login attempt (for logging)
             device_fingerprint: Stable device identifier, if available
             user_agent: Client user agent string, if available
-            user_agent: User agent string of the client initiating login
+            mfa_response: Response payload for a pending MFA challenge, if required
 
         Returns:
             AuthSession with decrypted master key
@@ -508,6 +525,36 @@ class AuthManager:
             # Authentication successful!
             self.rate_limiter.record_successful_attempt(user.user_id)
 
+            if self.mfa_manager.has_mfa(user.user_id):
+                if mfa_response is None:
+                    challenge = self.mfa_manager.build_challenge(user.user_id)
+                    logger.info(
+                        "MFA challenge required for user %s", user.user_id
+                    )
+                    raise MFARequiredError(challenge)
+
+                try:
+                    if not self.mfa_manager.verify_response(user.user_id, mfa_response):
+                        raise MFAChallengeError("Unknown MFA failure")
+                except MFAChallengeError as exc:
+                    logger.warning(
+                        "MFA verification failed for user %s: %s", user.user_id, exc
+                    )
+                    self.db.record_auth_attempt(
+                        user_id=user.user_id,
+                        email_hash=user.email_lookup_hash or user.email_hash,
+                        success=False,
+                        attempt_type='pin',
+                        ip_address=ip_address,
+                        failure_reason='mfa_failed',
+                        normalized_email_hash=user_context.normalized_email_hash,
+                        user_agent=user_agent,
+                        device_fingerprint=device_fingerprint,
+                        attempt_key=user_context.attempt_key,
+                    )
+                    self.rate_limiter.record_device_attempt(False, user_context)
+                    raise InvalidCredentialsError("Multi-factor authentication failed") from exc
+
             # Upgrade email hashing scheme if necessary
             if not user.email_salt or not user.email_lookup_hash:
                 new_email_hash, new_email_salt = self.pin_manager.hash_email_for_storage(normalized_email)
@@ -578,6 +625,118 @@ class AuthManager:
             if 'pin_derived_key' in locals():
                 secure_wipe(pin_derived_key)
             secure_wipe(bytearray(pin, 'utf-8'))
+
+    def unlock_session_with_pin(
+        self,
+        session_id: str,
+        pin: str,
+        *,
+        ip_address: Optional[str] = None,
+        device_fingerprint: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        mfa_response: Optional[MFAResponse] = None,
+    ) -> AuthSession:
+        """Unlock a locked session by re-validating the user's PIN."""
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            raise SessionExpiredError("Session has expired")
+
+        user = self.db.get_user_by_id(session.user_id)
+        if not user:
+            raise SessionExpiredError("User record is unavailable")
+
+        context = self.rate_limiter.build_attempt_context(
+            email_hash=user.email_lookup_hash or user.email_hash,
+            ip_address=ip_address,
+            device_fingerprint=device_fingerprint,
+            user_agent=user_agent,
+        )
+
+        try:
+            self.rate_limiter.check_rate_limit(user.user_id)
+            self.rate_limiter.check_global_rate_limit(context)
+        except (RateLimitError, AccountLockedError) as exc:
+            self.rate_limiter.record_device_attempt(False, context)
+            raise
+
+        credentials = self.db.get_credentials(user.user_id)
+        if credentials is None:
+            raise SessionExpiredError("No credentials available for user")
+
+        try:
+            with self.auth_queue.acquire("pin_unlock"):
+                pin_key = self.pin_manager.derive_key_from_pin(
+                    pin,
+                    credentials.pin_salt,
+                    algorithm=credentials.kdf_algorithm,
+                    metadata=credentials.kdf_metadata,
+                )
+
+            associated_data = user.email_hash + b"master_key"
+            master_key = self.pin_manager.decrypt_master_key(
+                credentials.encrypted_master_key,
+                pin_key,
+                associated_data,
+            )
+        except Exception as exc:  # noqa: BLE001 - treat all errors as invalid PIN
+            self.rate_limiter.record_failed_attempt(user.user_id)
+            self.db.record_auth_attempt(
+                user_id=user.user_id,
+                email_hash=user.email_lookup_hash or user.email_hash,
+                success=False,
+                attempt_type='pin',
+                ip_address=ip_address,
+                failure_reason='unlock_invalid_pin',
+                normalized_email_hash=context.normalized_email_hash,
+                user_agent=user_agent,
+                device_fingerprint=device_fingerprint,
+                attempt_key=context.attempt_key,
+            )
+            raise InvalidCredentialsError("Invalid PIN") from exc
+        finally:
+            secure_wipe(bytearray(pin, 'utf-8'))
+
+        if self.mfa_manager.has_mfa(user.user_id):
+            if mfa_response is None:
+                challenge = self.mfa_manager.build_challenge(user.user_id)
+                raise MFARequiredError(challenge)
+            try:
+                if not self.mfa_manager.verify_response(user.user_id, mfa_response):
+                    raise MFAChallengeError("Unknown MFA failure")
+            except MFAChallengeError as exc:
+                self.rate_limiter.record_failed_attempt(user.user_id)
+                self.db.record_auth_attempt(
+                    user_id=user.user_id,
+                    email_hash=user.email_lookup_hash or user.email_hash,
+                    success=False,
+                    attempt_type='pin',
+                    ip_address=ip_address,
+                    failure_reason='unlock_mfa_failed',
+                    normalized_email_hash=context.normalized_email_hash,
+                    user_agent=user_agent,
+                    device_fingerprint=device_fingerprint,
+                    attempt_key=context.attempt_key,
+                )
+                raise InvalidCredentialsError("Multi-factor authentication failed") from exc
+
+        session.unlock_session(master_key)
+        secure_wipe(master_key)
+        self.db.update_session_activity(session_id)
+        self.rate_limiter.record_successful_attempt(user.user_id)
+        self.rate_limiter.record_device_attempt(True, context)
+
+        audit_logger = get_audit_logger()
+        audit_logger.log_event(
+            AuditEventType.AUTH_SUCCESS,
+            AuditSeverity.INFO,
+            "Session unlocked after inactivity",
+            {"session_id": session_id},
+            user_id=str(user.user_id),
+            source_ip=ip_address,
+        )
+
+        return session
 
     def authenticate_with_password(
         self,
@@ -786,6 +945,45 @@ class AuthManager:
         logger.info(f"Created session {session_id} for user {user_id}")
         return session
 
+    def restore_session(
+        self,
+        session_id: str,
+        user_id: int,
+        master_key: bytes,
+        created_at: datetime,
+        expires_at: datetime,
+        *,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> AuthSession:
+        """Rehydrate a persisted session back into memory."""
+
+        if expires_at <= datetime.now():
+            raise SessionExpiredError("Session has expired")
+
+        normalized_ip, normalized_agent = self._normalize_client_metadata(
+            ip_address,
+            user_agent,
+        )
+
+        lock = self._session_locks[session_id]
+        session = AuthSession(
+            session_id=session_id,
+            user_id=user_id,
+            master_key=master_key,
+            created_at=created_at,
+            expires_at=expires_at,
+            lock=lock,
+            ip_address=normalized_ip,
+            user_agent=normalized_agent,
+        )
+
+        with lock:
+            self._sessions[session_id] = session
+
+        logger.info("Restored session %s for user %s", session_id, user_id)
+        return session
+
     def get_session(
         self,
         session_id: str,
@@ -809,7 +1007,7 @@ class AuthManager:
         """
         lock = self._session_locks[session_id]
         session: Optional[AuthSession] = None
-        error: Optional[SessionExpiredError] = None
+        error: Optional[AuthenticationError] = None
         should_remove_lock = False
         delete_from_db = False
 
@@ -833,18 +1031,24 @@ class AuthManager:
                     error = SessionExpiredError("Session has expired")
                 else:
                     idle_time = datetime.now() - session.last_activity
-                    if idle_time.total_seconds() > (self.config.session_idle_timeout_minutes * 60):
-                        logger.info(f"Session {session_id} expired due to inactivity")
-                        session.close()
-                        del self._sessions[session_id]
-                        should_remove_lock = True
-                        delete_from_db = True
-                        error = SessionExpiredError("Session expired due to inactivity")
+                    if idle_time.total_seconds() > (
+                        self.config.session_idle_timeout_minutes * 60
+                    ):
+                        logger.info(
+                            "Session %s locked due to inactivity", session_id
+                        )
+                        session.lock_session()
+                        error = SessionLockedError(
+                            "Session locked due to inactivity"
+                        )
                     else:
                         self.db.update_session_activity(session_id)
 
         if session is not None and error is None:
             return session
+
+        if isinstance(error, SessionLockedError):
+            raise error
 
         if delete_from_db:
             self.db.delete_session(session_id)

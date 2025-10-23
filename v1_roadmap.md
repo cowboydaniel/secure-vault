@@ -5,17 +5,19 @@ This roadmap distills the remaining work required to confidently ship the Secure
 ## 1. Product & Feature Completeness
 
 ### 1.1 Access & Authentication Experience
-- [ ] Deliver an accessible login flow with a keyboard- and screen-reader-friendly PIN pad.
-- [ ] Implement recovery safeguards (multi-step reset confirmation, verified notifications, and secure recovery data handling).
-- [ ] Harden secure token storage for CLI workflows with encrypted persistence and automatic rotation.
-- [ ] Maintain protected temporary session storage that survives application restarts without weakening guarantees.
-- [ ] Add automatic clipboard clearing with configurable dwell times after sensitive copies.
-- [ ] Provide inactivity lock functionality rather than relying solely on session expiry.
-- [ ] Offer multiple MFA methods: TOTP, hardware security keys (WebAuthn/FIDO2), and biometric unlock where supported.
-- [ ] Support secure account sharing and delegation flows for families and teams.
-- [ ] Enable encrypted, user-controlled cloud backups of vault state.
-- [ ] Issue printable emergency access codes for disaster recovery scenarios.
-- [ ] Expand GUI regression automation to cover core authentication, recovery, and sharing flows.
+- [x] Deliver an accessible login flow with a keyboard- and screen-reader-friendly PIN pad.
+- [x] Implement recovery safeguards (multi-step reset confirmation, verified notifications, and secure recovery data handling).
+- [x] Harden secure token storage for CLI workflows with encrypted persistence and automatic rotation.
+- [x] Maintain protected temporary session storage that survives application restarts without weakening guarantees.
+- [x] Add automatic clipboard clearing with configurable dwell times after sensitive copies.
+- [x] Provide inactivity lock functionality rather than relying solely on session expiry.
+- [x] Offer multiple MFA methods: TOTP, hardware security keys (WebAuthn/FIDO2), and biometric unlock where supported.
+- [x] Support secure account sharing and delegation flows for families and teams.
+- [x] Enable encrypted, user-controlled cloud backups of vault state.
+- [x] Issue printable emergency access codes for disaster recovery scenarios.
+- [x] Expand GUI regression automation to cover core authentication, recovery, and sharing flows.
+
+_Status:_ Completed via the accessible PIN pad widget integration (`LINUX_GUI/widgets/accessible_pin_pad.py`), updated login and recovery dialogs, CLI session persistence and inactivity unlock handling (`cli_auth.py`, `cli_session_store.py`), MFA orchestration (`mfa_manager.py`), backend session lock/restore support (`auth_manager.py`), delegation and recovery services (`delegation_manager.py`, `recovery_manager.py`, `cloud_backup.py`, `emergency_codes.py`), and expanded regression coverage validated with `pytest test_security_workflows.py test_gui_regression.py`.
 
 ### 1.2 Security & Resilience Core
 #### Entropy & Randomness
