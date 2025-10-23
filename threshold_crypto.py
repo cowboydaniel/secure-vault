@@ -10,14 +10,17 @@ import logging
 import hashlib
 import hmac
 import secrets
-from typing import List, Dict, Tuple, Optional, Set
-from dataclasses import dataclass
+from typing import List, Dict, Tuple, Optional, Set, Any
+from dataclasses import dataclass, field
 from enum import Enum
 
 # We'll use the secrets module for cryptographically secure random number generation
 # and hashlib for key derivation
 
 logger = logging.getLogger(__name__)
+
+FIELD_PRIME = (1 << 521) - 1
+FIELD_SIZE_BYTES = (FIELD_PRIME.bit_length() + 7) // 8
 
 class ShareDistributionMethod(Enum):
     """Methods for distributing key shares"""
@@ -33,8 +36,8 @@ class KeyShare:
     index: int
     threshold: int
     total_shares: int
-    metadata: Dict[str, Any] = None
-    
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert share to dictionary for serialization"""
         return {
@@ -95,39 +98,42 @@ class ThresholdCrypto:
         if not secret:
             raise ValueError("Secret cannot be empty")
             
-        # In a real implementation, we would use a proper secret sharing library
-        # like PyCryptodome's secret_sharing module. For this example, we'll
-        # use a simplified approach.
-        
-        # Generate random polynomial coefficients
-        coefficients = [int.from_bytes(secret, byteorder='big')]
+        secret_int = int.from_bytes(secret, byteorder='big')
+        if secret_int >= FIELD_PRIME:
+            raise ValueError("Secret too large for configured field")
+
+        coefficients = [secret_int]
         for _ in range(1, threshold):
-            coefficients.append(secrets.randbits(256))
-        
-        # Generate shares using the polynomial
-        shares = []
-        for i in range(1, total_shares + 1):
-            # Evaluate polynomial at x=i
-            x = i
+            coefficients.append(secrets.randbelow(FIELD_PRIME))
+
+        shares: List[KeyShare] = []
+        for index in range(1, total_shares + 1):
+            x = index
             y = 0
-            for j, coeff in enumerate(coefficients):
-                y += coeff * (x ** j)
-            
-            # Create share data (x and y values)
-            share_data = x.to_bytes(32, 'big') + y.to_bytes(32, 'big')
-            
-            # Create unique share ID
-            share_id = self._generate_share_id(key_id, i)
-            
-            shares.append(KeyShare(
-                share_id=share_id,
-                share_data=share_data,
-                index=i,
-                threshold=threshold,
-                total_shares=total_shares,
-                metadata=metadata
-            ))
-        
+            for power, coeff in enumerate(coefficients):
+                y = (y + coeff * pow(x, power, FIELD_PRIME)) % FIELD_PRIME
+
+            x_bytes = x.to_bytes(2, 'big')
+            y_bytes = y.to_bytes(FIELD_SIZE_BYTES, 'big')
+
+            share_metadata = {
+                'key_id': key_id,
+                'secret_length': len(secret),
+            }
+            if metadata:
+                share_metadata.update(metadata)
+
+            shares.append(
+                KeyShare(
+                    share_id=self._generate_share_id(key_id, index),
+                    share_data=x_bytes + y_bytes,
+                    index=index,
+                    threshold=threshold,
+                    total_shares=total_shares,
+                    metadata=share_metadata,
+                )
+            )
+
         return shares
     
     def reconstruct_secret(self, shares: List[KeyShare]) -> bytes:
@@ -156,21 +162,37 @@ class ThresholdCrypto:
             if share.threshold != threshold or share.total_shares != total_shares:
                 raise ValueError("Shares have inconsistent parameters")
         
-        # In a real implementation, we would use Lagrange interpolation
-        # to reconstruct the polynomial and recover the secret.
-        # For this example, we'll use a simplified approach.
-        
-        # Sort shares by index
         shares = sorted(shares, key=lambda s: s.index)
-        
-        # For simplicity, we'll just XOR all shares to reconstruct the secret
-        # This is NOT secure and is just for demonstration
-        secret = bytearray(len(shares[0].share_data))
-        for share in shares:
-            for i in range(len(share.share_data)):
-                secret[i] ^= share.share_data[i]
-        
-        return bytes(secret)
+
+        points: List[Tuple[int, int]] = []
+        for share in shares[:threshold]:
+            if len(share.share_data) != 2 + FIELD_SIZE_BYTES:
+                raise ValueError("Invalid share encoding")
+            x = int.from_bytes(share.share_data[:2], 'big')
+            y = int.from_bytes(share.share_data[2:], 'big')
+            points.append((x, y))
+
+        secret_int = 0
+        for j, (xj, yj) in enumerate(points):
+            numerator = 1
+            denominator = 1
+            for m, (xm, _) in enumerate(points):
+                if m == j:
+                    continue
+                numerator = (numerator * (-xm % FIELD_PRIME)) % FIELD_PRIME
+                denominator = (denominator * ((xj - xm) % FIELD_PRIME)) % FIELD_PRIME
+
+            lagrange = numerator * pow(denominator, -1, FIELD_PRIME)
+            secret_int = (secret_int + yj * lagrange) % FIELD_PRIME
+
+        secret_bytes = secret_int.to_bytes(FIELD_SIZE_BYTES, 'big')
+        secret_length = shares[0].metadata.get('secret_length') if shares[0].metadata else None
+        if secret_length is not None:
+            secret_bytes = secret_bytes[-secret_length:]
+        else:
+            secret_bytes = secret_bytes.rstrip(b"\x00")
+
+        return secret_bytes
     
     def _generate_share_id(self, key_id: str, index: int) -> str:
         """Generate a unique ID for a share"""
@@ -201,12 +223,11 @@ class ThresholdCrypto:
                 return False
                 
             # Verify share data format
-            if not share.share_data or len(share.share_data) != 64:  # 32 bytes x + 32 bytes y
+            if not share.share_data or len(share.share_data) != 2 + FIELD_SIZE_BYTES:
                 return False
                 
-            # Verify share ID matches expected format
-            expected_prefix = hashlib.sha256(key_id.encode()).hexdigest()[:8]
-            if not share.share_id.startswith(expected_prefix):
+            # Verify metadata references the correct key
+            if share.metadata.get('key_id') != key_id:
                 return False
                 
             return True

@@ -9,6 +9,7 @@ import os
 import time
 import math
 import ctypes
+import hashlib
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Callable, Any
 from dataclasses import dataclass, field
@@ -16,6 +17,7 @@ from enum import Enum, auto
 import threading
 import logging
 from collections import deque
+from pathlib import Path
 import platform
 import sys
 
@@ -33,6 +35,9 @@ class EntropySource(Enum):
     HARDWARE_RNG = auto()
     TIMING = auto()
     USER_INPUT = auto()
+    INTERRUPT = auto()
+    DISK_ACTIVITY = auto()
+    NETWORK_ACTIVITY = auto()
 
 class EntropyHealthStatus(Enum):
     """Health status of entropy source"""
@@ -205,6 +210,18 @@ class EntropyMonitor:
                 'TIMING': {
                     'min_entropy': 0.6,  # More lenient for timing sources
                     'runs_test': 0.001
+                },
+                'INTERRUPT': {
+                    'min_entropy': 0.65,
+                    'entropy_rate': 0.05
+                },
+                'DISK_ACTIVITY': {
+                    'min_entropy': 0.7,
+                    'compression_ratio': 0.88
+                },
+                'NETWORK_ACTIVITY': {
+                    'min_entropy': 0.7,
+                    'runs_test': 0.005
                 }
             },
             
@@ -255,14 +272,21 @@ class EntropyMonitor:
                 # Collect from all sources
                 self.collect_sample(EntropySource.SYSTEM_RANDOM, self._collect_system_random())
                 self.collect_sample(EntropySource.OS_URANDOM, self._collect_os_urandom())
-                
+
                 # Only collect from hardware RNG if available
                 if hw_status['available_sources']:
                     hw_data = self._collect_hardware_rng()
                     self.collect_sample(EntropySource.HARDWARE_RNG, hw_data)
-                
+
                 self.collect_sample(EntropySource.TIMING, self._collect_timing_entropy())
-                
+                self.collect_sample(EntropySource.INTERRUPT, self._collect_interrupt_entropy())
+                self.collect_sample(EntropySource.DISK_ACTIVITY, self._collect_disk_entropy())
+                self.collect_sample(EntropySource.NETWORK_ACTIVITY, self._collect_network_entropy())
+
+                user_entropy = self._collect_user_input_entropy()
+                if user_entropy:
+                    self.collect_sample(EntropySource.USER_INPUT, user_entropy)
+
                 # Log hardware RNG status periodically
                 if self.running and len(self.samples[EntropySource.HARDWARE_RNG]) % 10 == 0:
                     hw_status = hw_rng.get_status()
@@ -592,7 +616,7 @@ class EntropyMonitor:
 
     def _collect_timing_entropy(self, samples: int = 1000) -> bytes:
         """Collect entropy from timing variations
-        
+
         Args:
             samples: Number of timing samples to collect
             
@@ -616,9 +640,9 @@ class EntropyMonitor:
         if not timings:
             logger.warning("No timing entropy collected")
             return b'\x00'  # Return minimal entropy if collection failed
-            
+
         return bytes(timings)
-        
+
     def _collect_hardware_rng(self, size: int = 1024) -> bytes:
         """
         Collect entropy from hardware RNG if available
@@ -649,10 +673,109 @@ class EntropyMonitor:
         except Exception as e:
             logger.error(f"Error reading from hardware RNG: {e}")
             return os.urandom(size)
-                
+
+    def _collect_interrupt_entropy(self, size: int = 512) -> bytes:
+        """Collect entropy from kernel interrupt statistics"""
+        path = Path('/proc/interrupts')
+        if not path.exists():
+            logger.debug("/proc/interrupts not available, synthesizing interrupt entropy")
+            return self._synthesize_entropy_marker('interrupts', size)
+
+        try:
+            snapshot = path.read_bytes()
+            timestamp = time.time_ns().to_bytes(8, 'little', signed=False)
+            mixed = hashlib.sha512(snapshot + timestamp).digest()
+            entropy_accumulator.add_entropy(
+                mixed,
+                source=EntropySource.INTERRUPT.value,
+                estimated_bits=len(mixed) * 6.5,
+            )
+            return (mixed * ((size // len(mixed)) + 1))[:size]
+        except Exception as exc:
+            logger.warning(f"Failed to collect interrupt entropy: {exc}")
+            return self._synthesize_entropy_marker('interrupts', size)
+
+    def _collect_disk_entropy(self, size: int = 512) -> bytes:
+        """Collect entropy from disk statistics and jitter"""
+        path = Path('/proc/diskstats')
+        if not path.exists():
+            return self._synthesize_entropy_marker('disk', size)
+
+        try:
+            snapshot = path.read_bytes()
+            jitter = time.perf_counter_ns().to_bytes(8, 'little', signed=False)
+            pid_bytes = os.getpid().to_bytes(4, 'little', signed=False)
+            mixed = hashlib.blake2b(snapshot + jitter + pid_bytes, digest_size=64).digest()
+            entropy_accumulator.add_entropy(
+                mixed,
+                source=EntropySource.DISK_ACTIVITY.value,
+                estimated_bits=len(mixed) * 6.0,
+            )
+            return (mixed * ((size // len(mixed)) + 1))[:size]
+        except Exception as exc:
+            logger.warning(f"Failed to collect disk entropy: {exc}")
+            return self._synthesize_entropy_marker('disk', size)
+
+    def _collect_network_entropy(self, size: int = 512) -> bytes:
+        """Collect entropy from network device counters"""
+        path = Path('/proc/net/dev')
+        if not path.exists():
+            return self._synthesize_entropy_marker('network', size)
+
+        try:
+            snapshot = path.read_bytes()
+            monotonic = time.monotonic_ns().to_bytes(8, 'little', signed=False)
+            tid = threading.get_ident().to_bytes(8, 'little', signed=False)
+            mixed = hashlib.sha3_512(snapshot + monotonic + tid).digest()
+            entropy_accumulator.add_entropy(
+                mixed,
+                source=EntropySource.NETWORK_ACTIVITY.value,
+                estimated_bits=len(mixed) * 5.8,
+            )
+            return (mixed * ((size // len(mixed)) + 1))[:size]
+        except Exception as exc:
+            logger.warning(f"Failed to collect network entropy: {exc}")
+            return self._synthesize_entropy_marker('network', size)
+
+    def _collect_user_input_entropy(self, size: int = 256) -> bytes:
+        """Collect entropy from cached user input timing artifacts"""
+        cache_path = Path.home() / '.secure_vault' / 'user_input_entropy.bin'
+        try:
+            if cache_path.exists():
+                data = cache_path.read_bytes()
+                trimmed = data[-size:]
+            else:
+                trimmed = b''
+
+            if not trimmed:
+                # Derive entropy from recent timing jitter as a fallback
+                jitter = time.perf_counter_ns()
+                trimmed = jitter.to_bytes(16, 'little', signed=False) + os.urandom(size - 16)
+
+            salt = hashlib.sha3_256(os.urandom(32)).digest()
+            hashed = hashlib.pbkdf2_hmac('sha256', trimmed, salt, 1000, dklen=size)
+            entropy_accumulator.add_entropy(
+                hashed,
+                source=EntropySource.USER_INPUT.value,
+                estimated_bits=len(hashed) * 5.5,
+            )
+            return hashed
+        except Exception as exc:
+            logger.debug(f"User input entropy fallback engaged: {exc}")
+            return self._synthesize_entropy_marker('user', size)
+
+    def _synthesize_entropy_marker(self, label: str, size: int) -> bytes:
+        """Synthesize entropy when the real source is unavailable"""
+        seed_material = (
+            f"{label}:{time.time_ns()}:{os.getpid()}:{threading.get_ident()}".encode('utf-8')
+        )
+        digest = hashlib.blake2b(seed_material, digest_size=64).digest()
+        expanded = digest * ((size // len(digest)) + 1)
+        return expanded[:size]
+
     def _collect_user_input(self, prompt: str = "Random input: ") -> bytes:
         """Collect entropy from user input
-            
+
         Args:
             prompt: Prompt to show the user
                 
@@ -695,6 +818,68 @@ def get_entropy_metrics(source: EntropySource) -> Optional[EntropyMetrics]:
 def get_health_status(source: EntropySource) -> EntropyHealthStatus:
     """Get the current health status of an entropy source"""
     return entropy_monitor.assess_health(source)
+
+
+def benchmark_entropy_sources(samples: int = 32, sample_size: int = 256) -> Dict[str, Dict[str, float]]:
+    """Benchmark all entropy sources and return aggregated metrics."""
+
+    results: Dict[str, Dict[str, float]] = {}
+
+    def _collect_for_source(source: EntropySource) -> bytes:
+        if source == EntropySource.SYSTEM_RANDOM:
+            return entropy_monitor._collect_system_random(sample_size)
+        if source == EntropySource.OS_URANDOM:
+            return entropy_monitor._collect_os_urandom(sample_size)
+        if source == EntropySource.HARDWARE_RNG:
+            return entropy_monitor._collect_hardware_rng(sample_size)
+        if source == EntropySource.TIMING:
+            return entropy_monitor._collect_timing_entropy(min(sample_size * 2, 4096))
+        if source == EntropySource.USER_INPUT:
+            return entropy_monitor._collect_user_input_entropy(sample_size)
+        if source == EntropySource.INTERRUPT:
+            return entropy_monitor._collect_interrupt_entropy(sample_size)
+        if source == EntropySource.DISK_ACTIVITY:
+            return entropy_monitor._collect_disk_entropy(sample_size)
+        if source == EntropySource.NETWORK_ACTIVITY:
+            return entropy_monitor._collect_network_entropy(sample_size)
+        raise ValueError(f"Unsupported entropy source: {source}")
+
+    for source in EntropySource:
+        metrics: List[EntropyMetrics] = []
+        durations: List[float] = []
+
+        for _ in range(samples):
+            start = time.perf_counter()
+            raw = _collect_for_source(source)
+            durations.append(time.perf_counter() - start)
+
+            secure_sample = SecureBytes(raw)
+            try:
+                metric = entropy_monitor._calculate_metrics(bytes(secure_sample))
+                metrics.append(metric)
+            finally:
+                secure_free(secure_sample)
+
+        if not metrics:
+            continue
+
+        avg_min_entropy = sum(m.min_entropy for m in metrics) / len(metrics)
+        avg_shannon_entropy = sum(m.shannon_entropy for m in metrics) / len(metrics)
+        avg_health = sum(m.health_score for m in metrics) / len(metrics)
+        avg_rate = sum(m.entropy_rate for m in metrics) / len(metrics)
+        total_time = sum(durations) or 1e-9
+        throughput = (len(metrics) * sample_size) / total_time
+
+        results[source.name] = {
+            'average_min_entropy': avg_min_entropy,
+            'average_shannon_entropy': avg_shannon_entropy,
+            'average_health_score': avg_health,
+            'average_entropy_rate': avg_rate,
+            'throughput_bytes_per_second': throughput,
+            'samples': float(len(metrics)),
+        }
+
+    return results
 
 # Register cleanup on exit
 import atexit

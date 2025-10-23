@@ -16,6 +16,9 @@ unbreakability provided by the OTP layer.
 import os
 import time
 import threading
+import gc
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Iterable, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -208,9 +211,12 @@ class MultiLayerPipeline:
         self._total_files_processed = 0
         self._total_bytes_processed = 0
         self._average_throughput = 0.0
-        
+        self._acceleration_capabilities = self._detect_acceleration_capabilities()
+
         logger.info("Multi-Layer Pipeline initialized with revolutionary 512-bit security")
         self._log_security_guarantees()
+        if any(self._acceleration_capabilities.values()):
+            logger.info(f"Acceleration hooks detected: {self._acceleration_capabilities}")
     
     def _log_security_guarantees(self):
         """Log the security guarantees provided by the pipeline"""
@@ -220,7 +226,31 @@ class MultiLayerPipeline:
         logger.info("• Fault Tolerance: REDUNDANT (Information Dispersal)")
         logger.info("• Algorithm Uniqueness: OBFUSCATED (Custom Cipher)")
         logger.info("• Consistent Security Level: 512-BIT throughout")
-    
+
+    def _detect_acceleration_capabilities(self) -> Dict[str, bool]:
+        """Detect available CPU/GPU acceleration hooks."""
+
+        capabilities = {'aes_ni': False, 'cuda': False}
+
+        cpuinfo = Path('/proc/cpuinfo')
+        if cpuinfo.exists():
+            try:
+                data = cpuinfo.read_text().lower()
+                capabilities['aes_ni'] = 'aes' in data
+            except OSError:
+                pass
+
+        cuda_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
+        if cuda_devices and cuda_devices not in {'', '-1'}:
+            capabilities['cuda'] = True
+
+        return capabilities
+
+    def get_acceleration_capabilities(self) -> Dict[str, bool]:
+        """Return detected acceleration capabilities."""
+
+        return dict(self._acceleration_capabilities)
+
     def encrypt_file(self, 
                     file_path: str, 
                     output_base_name: Optional[str] = None,
@@ -260,10 +290,6 @@ class MultiLayerPipeline:
                 file_path,
                 self.config.chunk_size,
             )
-            
-            # Read input file
-            with open(file_path, 'rb') as f:
-                original_data = f.read()
 
             original_size = len(original_data)
             layer_results = []
@@ -280,11 +306,15 @@ class MultiLayerPipeline:
             # LAYER 1: Information Dispersal Algorithm (0-20%)
             logger.info("Layer 1: Information Dispersal Algorithm")
             ida_result = self._execute_layer_1(
-                original_data, 
+                original_data,
                 file_id,
                 progress_callback=lambda p, msg: update_progress(0, 20, p, 100, f"Layer 1: {msg}")
             )
             layer_results.append(ida_result)
+
+            # Release original plaintext to reduce peak memory usage
+            del original_data
+            gc.collect()
             
             if progress_callback:
                 progress_callback(20, "Layer 1 complete: Information dispersal...")
@@ -493,39 +523,49 @@ class MultiLayerPipeline:
         total_shares = len(shares)
         
         try:
-            for i, share in enumerate(shares):
-                try:
-                    # Update progress for this share
+            if self.config.parallel_processing and total_shares > 1:
+                progress_lock = threading.Lock()
+                results: List[Optional[OTPEncryptionResult]] = [None] * total_shares
+
+                def task(args: Tuple[int, IDAShare]) -> Tuple[int, OTPEncryptionResult]:
+                    index, share_obj = args
+                    start_percent = int((index / total_shares) * 100)
+                    with progress_lock:
+                        update_progress(start_percent, f"Encrypting share {index+1}/{total_shares} with one-time pad...")
+                    result_obj = self.otp_engine.encrypt(share_obj.share_data)
+                    with progress_lock:
+                        update_progress(
+                            min(100, start_percent + int(100 / max(1, total_shares))),
+                            f"Share {index+1}/{total_shares}: encryption complete"
+                        )
+                    return index, result_obj
+
+                with ThreadPoolExecutor(max_workers=min(self.config.max_threads, total_shares)) as executor:
+                    futures = {executor.submit(task, (idx, share)): idx for idx, share in enumerate(shares)}
+                    for future in as_completed(futures):
+                        idx, result = future.result()
+                        results[idx] = result
+
+                otp_results.extend(result for result in results if result is not None)
+
+            else:
+                for i, share in enumerate(shares):
                     share_progress = int((i / total_shares) * 100)
                     update_progress(
                         share_progress,
                         f"Encrypting share {i+1}/{total_shares} with one-time pad..."
                     )
-                    
-                    # Encrypt each share with a unique OTP key
-                    result = self.otp_engine.encrypt(
-                        share.share_data,
-                        progress_callback=lambda p, m: update_progress(
-                            share_progress + int((p / 100) * (100 / total_shares)),
-                            f"Share {i+1}/{total_shares}: {m}"
-                        )
-                    )
+                    result = self.otp_engine.encrypt(share.share_data)
                     otp_results.append(result)
-                    
-                    logger.debug(f"Share {i+1}/{total_shares} encrypted with OTP. "
-                               f"Key ID: {result.key_id}, "
-                               f"Entropy: {result.entropy_estimate:.2f} bits/byte")
-                    
-                except Exception as e:
-                    error_msg = f"OTP encryption failed for share {i+1}: {e}"
-                    logger.error(error_msg, exc_info=True)
-                    update_progress(0, f"Error: {error_msg}")
-                    raise RuntimeError(error_msg) from e
-            
+                    update_progress(
+                        min(100, share_progress + int(100 / max(1, total_shares))),
+                        f"Share {i+1}/{total_shares}: encryption complete"
+                    )
+
             logger.info(f"Perfect secrecy achieved for {len(otp_results)} shares")
             update_progress(100, "Perfect secrecy layer complete")
             return otp_results
-            
+
         except Exception as e:
             error_msg = f"Layer 2 (OTP) failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -573,21 +613,26 @@ class MultiLayerPipeline:
                     )
                     
                     # Encapsulate shared secret for protecting OTP key metadata
-                    encap_result = self.mlkem_engine.encapsulate(keypair.public_key)
-                    
+                    hybrid_result = self.mlkem_engine.hybrid_encapsulate(keypair.public_key)
+
                     # Create context for this share
                     context_data = {
                         'share_index': i,
                         'otp_key_id': otp_result.key_id,
-                        'encap_result': encap_result,
+                        'encap_result': hybrid_result.mlkem_result,
+                        'hybrid_result': hybrid_result,
+                        'combined_secret': hybrid_result.combined_secret,
                         'keypair_id': keypair.key_id,
+                        'algorithm_profile': hybrid_result.algorithm_profile.name if hybrid_result.algorithm_profile else 'Hybrid-MLKEM-X25519',
                         'timestamp': time.time()
                     }
-                    
+
                     mlkem_contexts.append(context_data)
-                    
-                    logger.debug(f"Share {i+1}/{total_shares} protected with ML-KEM. "
-                               f"Key ID: {keypair.key_id}")
+
+                    logger.debug(
+                        f"Share {i+1}/{total_shares} protected with hybrid ML-KEM. "
+                        f"Key ID: {keypair.key_id}"
+                    )
                     
                 except Exception as e:
                     error_msg = f"ML-KEM protection failed for share {i+1}: {e}"
@@ -692,7 +737,8 @@ class MultiLayerPipeline:
                     'compression_ratio': total_output_size / max(1, total_input_size),
                     'master_key_id': compute_sha3_512(master_key)[:16].hex(),
                     'encrypted_shares': encrypted_data,
-                    'cipher_context': cipher_context
+                    'cipher_context': cipher_context,
+                    'acceleration': self._acceleration_capabilities
                 }
             )
             
@@ -711,7 +757,7 @@ class MultiLayerPipeline:
                 processing_time=time.time() - start_time,
                 status=OperationStatus.FAILED,
                 error_message=error_msg,
-                metadata={}
+                metadata={'acceleration': self._acceleration_capabilities}
             )
     
     def _execute_layer_5(self, cipher_metadata: Dict, file_id: str,

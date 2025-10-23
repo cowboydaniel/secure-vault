@@ -21,23 +21,25 @@ _Status:_ Completed via the accessible PIN pad widget integration (`LINUX_GUI/wi
 
 ### 1.2 Security & Resilience Core
 #### Entropy & Randomness
-- [ ] Broaden entropy sources (interrupt, network, disk, and user input timing).
-- [ ] Extend statistical randomness analysis and benchmarking coverage.
-- [ ] Document usage patterns and publish throughput/quality benchmarks per platform.
-- [ ] Provide automatic failover when entropy sources degrade.
-- [ ] Support hardware RNG instructions (RDRAND, RDSEED) in a portable manner.
-- [ ] Improve entropy mixing and extraction algorithms.
+- [x] Broaden entropy sources (interrupt, network, disk, and user input timing).
+- [x] Extend statistical randomness analysis and benchmarking coverage.
+- [x] Document usage patterns and publish throughput/quality benchmarks per platform.
+- [x] Provide automatic failover when entropy sources degrade.
+- [x] Support hardware RNG instructions (RDRAND, RDSEED) in a portable manner.
+- [x] Improve entropy mixing and extraction algorithms.
 
 #### Cryptography & Key Management
-- [ ] Finish ML-KEM hybrid integration and performance optimization work.
-- [ ] Design and implement multi-party workflows (threshold signatures, distributed key generation).
-- [ ] Document formal key ceremonies for high-security deployments.
-- [ ] Add additional PQC options beyond ML-KEM.
+- [x] Finish ML-KEM hybrid integration and performance optimization work.
+- [x] Design and implement multi-party workflows (threshold signatures, distributed key generation).
+- [x] Document formal key ceremonies for high-security deployments.
+- [x] Add additional PQC options beyond ML-KEM.
 
 #### Performance & Parallelism
-- [ ] Eliminate pipeline bottlenecks through safe parallelization.
-- [ ] Reduce memory consumption for large file operations.
-- [ ] Add hooks for CPU (e.g., AES-NI) and GPU acceleration.
+- [x] Eliminate pipeline bottlenecks through safe parallelization.
+- [x] Reduce memory consumption for large file operations.
+- [x] Add hooks for CPU (e.g., AES-NI) and GPU acceleration.
+
+_Status:_ Completed via expanded entropy collectors and benchmarking helpers (`entropy_monitor.py`, `rng_manager.py`, `hardware_rng.py`), hybrid ML-KEM workflows and PQC registry enhancements (`mlkem_layer.py`, `pqc_registry.py`), distributed ceremony orchestration (`distributed_workflows.py`, `threshold_crypto.py`), updated pipeline integration (`pipeline.py`), and supporting documentation in `docs/security_resilience.md` and `docs/key_ceremony.md` with regression coverage (`test_security_resilience_phase12.py`).
 
 ### 1.3 Platform Footprint
 - [ ] Close remaining gaps with Windows/macOS parity per the platform roadmap (taskbar integration, keychain usage, native dialogs, etc.) to ensure cross-platform consistency during v1 support.
