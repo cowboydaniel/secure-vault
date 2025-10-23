@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from auth_database import AuthDatabase
-from auth_manager import AuthManager, InvalidCredentialsError
+from auth_manager import AuthManager, InvalidCredentialsError, SessionExpiredError
 from instance_guard import InstanceGuard, TamperDetectedError
 from pin_manager import PINManager, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
@@ -89,7 +89,14 @@ class AuthenticationTestCase(unittest.TestCase):
         session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
         self.assertIsNotNone(session)
         self.assertEqual(user_id, session.user_id)
-        self.assertEqual(32, len(session.get_master_key()))
+
+        with session.master_key() as buffer:
+            self.assertEqual(32, len(buffer))
+            snapshot = bytes(buffer)
+
+        self.assertEqual(32, len(snapshot))
+        self.assertTrue(all(b == 0 for b in buffer))
+        self.assertTrue(session.has_master_key())
 
         credentials = self.db.get_credentials(user_id)
         self.assertEqual('argon2id', credentials.kdf_algorithm)
@@ -107,6 +114,30 @@ class AuthenticationTestCase(unittest.TestCase):
 
         self.auth_manager.logout(session.session_id)
         self.assertIsNone(self.auth_manager.get_session(session.session_id))
+        self.assertFalse(session.has_master_key())
+
+    def test_session_secret_zeroized_after_logout(self) -> None:
+        """Logging out should wipe the in-memory session secret."""
+
+        email = "alice@example.com"
+        password = "Sup3rSecurePass!"
+        pin = "839201"
+
+        self.user_manager.create_user(email=email, password=password, pin=pin)
+        session = self.auth_manager.authenticate_with_pin(email=email, pin=pin)
+
+        with session.master_key() as buffer:
+            preview = bytes(buffer)
+
+        self.assertEqual(32, len(preview))
+        self.assertTrue(session.has_master_key())
+
+        self.auth_manager.logout(session.session_id)
+
+        self.assertFalse(session.has_master_key())
+        with self.assertRaises(SessionExpiredError):
+            with session.master_key():
+                pass
 
     def test_rate_limiter_enforces_lockout(self) -> None:
         """Repeated invalid attempts trigger an account lockout."""
