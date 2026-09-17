@@ -1,0 +1,82 @@
+name: Python CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m compileall -q .
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Qt system library
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0
+      - run: python -m pip install -r requirements-test.txt
+      - name: Run complete pytest suite
+        run: python -m pytest
+
+  qt-test:
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Qt system library
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0
+      - run: python -m pip install -r requirements-test.txt
+      - name: Run headless Qt tests
+        run: >-
+          python -m pytest tests/test_qt.py tests/test_gui.py
+          tests/test_gui_regression.py tests/test_secure_clipboard.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: make lint
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: make type-check
