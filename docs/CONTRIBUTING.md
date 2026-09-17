@@ -23,9 +23,10 @@ Thank you for your interest in contributing to SecureVault! We welcome contribut
    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
    ```
 
-3. Install dependencies:
+3. Install the pinned development environment (including test and GUI
+   dependencies):
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
    ```
 
 4. Run tests:

@@ -1,7 +1,7 @@
 SBOM_DIR := build
 SBOM_FILE := $(SBOM_DIR)/sbom.xml
 
-.PHONY: sbom release-artifacts deps-update clean
+.PHONY: sbom release-artifacts deps-update deps-test deps-dev clean
 
 sbom: $(SBOM_FILE)
 
@@ -17,6 +17,12 @@ release-artifacts: sbom
 deps-update:
 	pip3 install -r requirements.txt
 	$(MAKE) sbom
+
+deps-test:
+	pip3 install -r requirements-test.txt
+
+deps-dev:
+	pip3 install -r requirements-dev.txt
 
 clean:
 	rm -rf $(SBOM_DIR) release_artifacts

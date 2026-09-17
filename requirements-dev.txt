@@ -1,0 +1,18 @@
+# Contributor tooling. Includes the complete test environment.
+-c constraints.txt
+-r requirements-test.txt
+
+black
+Cython
+cyclonedx-bom
+flake8
+isort
+memory-profiler
+mypy
+numba
+psutil
+py-spy
+Sphinx
+sphinx-rtd-theme
+sympy
+watchdog
