@@ -187,7 +187,7 @@ class AuthSession:
 
     @contextmanager
     def master_key(self) -> Iterator[bytearray]:
-        """Context manager providing temporary access to the master key."""
+        """Context manager providing temporary access to the master key.
 
         Raises:
             SessionExpiredError: If session has expired
@@ -785,11 +785,9 @@ class AuthManager:
 
         # Get user by email
         user = self.user_manager.get_user_by_email(normalized_email)
-        user = self.user_manager.get_user_by_email(email)
-        lookup_hash = self.pin_manager.hash_email_for_lookup(email)
         attempt_context = self.rate_limiter.build_attempt_context(
-            email=email,
-            email_hash=lookup_hash,
+            email=normalized_email,
+            email_hash=email_lookup_hash,
             ip_address=ip_address,
             device_fingerprint=device_fingerprint,
             user_agent=user_agent,
@@ -800,7 +798,6 @@ class AuthManager:
             self.db.record_auth_attempt(
                 user_id=None,
                 email_hash=email_lookup_hash,
-                email_hash=lookup_hash,
                 success=False,
                 attempt_type='password',
                 ip_address=ip_address,

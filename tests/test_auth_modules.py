@@ -18,29 +18,12 @@ from auth_manager import (
     AuthSession,
     InvalidCredentialsError,
     SessionExpiredError,
-    InvalidCredentialsError,
-    SessionExpiredError,
-from auth_manager import AuthManager, InvalidCredentialsError, SessionExpiredError
-from auth_manager import (
-    AuthManager,
-    InvalidCredentialsError,
     SessionHijackingError,
 )
 from instance_guard import InstanceGuard, TamperDetectedError
-from pin_manager import PINManager, PINValidationError
+from pin_manager import PINManager, PINPolicy, PINValidationError
 from rate_limiter import AccountLockedError, RateLimitError
 from user_manager import UserManager, UserExistsError, ValidationError
-import os
-import tempfile
-import unittest
-
-from auth_database import AuthDatabase
-from auth_manager import AuthManager, InvalidCredentialsError
-from instance_guard import TamperDetectedError
-from pin_manager import PINManager, PINValidationError
-from pin_manager import PINManager, PINValidationError, PINPolicy
-from rate_limiter import AccountLockedError, RateLimitError
-from user_manager import UserManager, UserExistsError
 
 
 class AuthenticationTestCase(unittest.TestCase):
@@ -55,7 +38,6 @@ class AuthenticationTestCase(unittest.TestCase):
         os.environ["SECURE_VAULT_GUARD_WRAP_SECRET"] = "test-guard-wrap-secret"
         self.db_path = os.path.join(self.temp_dir.name, "users.db")
         self.db = AuthDatabase(db_path=self.db_path, pool_size=3)
-        self.db = AuthDatabase(db_path=self.db_path)
         self.auth_manager = AuthManager(db=self.db)
         self.user_manager: UserManager = self.auth_manager.user_manager
 
