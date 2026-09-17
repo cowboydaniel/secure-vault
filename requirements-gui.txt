@@ -1,0 +1,5 @@
+# Desktop GUI dependencies. Includes the core runtime.
+-c constraints.txt
+-r requirements.txt
+
+PyQt6

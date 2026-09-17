@@ -1,0 +1,8 @@
+# Optional hardware integrations. Install only on hosts that use them.
+-c constraints.txt
+
+pyserial
+# Keep GPIO support off ordinary Linux, macOS, and Windows environments.
+RPi.GPIO; sys_platform == "linux" and platform_machine == "armv6l"
+RPi.GPIO; sys_platform == "linux" and platform_machine == "armv7l"
+RPi.GPIO; sys_platform == "linux" and platform_machine == "aarch64"

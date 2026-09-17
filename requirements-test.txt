@@ -1,0 +1,9 @@
+# Dependencies needed to collect and run the complete test suite.
+-c constraints.txt
+-r requirements-gui.txt
+
+hypothesis
+pytest
+pytest-benchmark
+pytest-cov
+scipy

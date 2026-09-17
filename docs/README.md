@@ -110,10 +110,24 @@ and the [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for known blockers.
    cd secure_vault
    ```
 
-2. Install dependencies:
+2. Install the pinned command-line runtime dependencies:
    ```bash
    ./install_dependencies.sh
    ```
+
+   Dependency groups are kept separate so installations only receive what
+   they need. Each group uses the supported Python 3.11 snapshot in
+   `constraints.txt`:
+
+   ```bash
+   pip install -r requirements-gui.txt      # runtime plus desktop GUI
+   pip install -r requirements-test.txt     # runtime, GUI, and test suite
+   pip install -r requirements-dev.txt      # complete contributor toolchain
+   pip install -r requirements-platform.txt # optional hardware integrations
+   ```
+
+   `RPi.GPIO` is restricted to ARM Linux in the platform group, so ordinary
+   Linux, macOS, and Windows environments do not attempt to install it.
 
 3. Build the required libraries:
    ```bash
@@ -248,7 +262,6 @@ work together or meet their stated security properties.
 
 - `python -m compileall -q .` fails on multiple source and test files.
 - `pytest -q` stops during collection with ten errors and three skipped tests.
-- Tests require SciPy, but it is not declared in `requirements.txt`.
 - Qt tests require native graphical libraries that are not provisioned in the
   assessment environment.
 - The GitHub Actions workflow performs dependency auditing only; it does not
@@ -267,10 +280,9 @@ work together or meet their stated security properties.
 ### Next steps
 
 1. Repair the syntax and source-encoding errors.
-2. Make the dependency manifest complete and reproducible.
-3. Restore a passing test baseline, including headless GUI configuration.
-4. Add compilation, tests, linting, and type checking to pull-request CI.
-5. Complete security review and release validation before assigning a release
+2. Restore a passing test baseline, including headless GUI configuration.
+3. Add compilation, tests, linting, and type checking to pull-request CI.
+4. Complete security review and release validation before assigning a release
    version.
 
 ## 📊 Benchmarks

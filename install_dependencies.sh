@@ -21,12 +21,12 @@ sudo ninja install
 sudo ldconfig
 cd ../..
 
-# Install Python packages
-echo "Installing Python packages..."
-pip3 install oqs pycryptodome gmpy2 cyclonedx-bom
+# Install the pinned command-line runtime. GUI, test, development, and
+# platform-specific environments have separate composable requirement files.
+echo "Installing Python runtime packages..."
+pip3 install -r requirements.txt
 
 echo "Regenerating SBOM from dependency snapshot..."
 # Generate the latest SBOM alongside dependency refresh
 make sbom
 echo "Installation complete!"
-

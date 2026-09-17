@@ -1,0 +1,34 @@
+# Supported dependency snapshot for Python 3.11.
+# Update this file deliberately and validate every requirements group together.
+argon2-cffi==25.1.0
+black==26.3.1
+Cython==3.3.0
+cyclonedx-bom==7.4.0
+cryptography==46.0.3
+flake8==7.3.0
+gmpy2==2.2.2
+hypothesis==6.148.7
+isort==7.0.0
+keyring==25.7.0
+lz4==4.4.5
+memory-profiler==0.61.0
+mypy==1.19.1
+numba==0.63.1
+numpy==2.3.5
+Pillow==12.0.0
+psutil==7.2.1
+py-spy==0.4.1
+pycryptodome==3.23.0
+PyQt6==6.10.1
+pyserial==3.5
+pytest==9.0.2
+pytest-benchmark==5.2.3
+pytest-cov==7.0.0
+RPi.GPIO==0.7.1
+scipy==1.16.3
+Sphinx==8.2.3
+sphinx-rtd-theme==3.0.2
+sympy==1.14.0
+tqdm==4.67.1
+watchdog==6.0.0
+zstandard==0.25.0
