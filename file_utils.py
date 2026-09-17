@@ -5,7 +5,10 @@ from __future__ import annotations
 import errno
 import os
 from os import PathLike
-from typing import IO, Optional, Union
+from pathlib import Path
+from typing import IO, Iterable, List, Optional, Sequence, Union
+
+from config import StorageConfig
 
 
 class SymlinkOpenError(OSError):
@@ -84,14 +87,6 @@ def safe_file_open(
         os.close(fd)
         raise
 
-"""File utility helpers for Secure Vault."""
-
-from __future__ import annotations
-
-import os
-from typing import Optional
-
-
 DEFAULT_MAX_INPUT_SIZE_BYTES = 512 * 1024 * 1024  # 512 MB
 
 
@@ -151,14 +146,6 @@ def validate_input_file(
         )
 
     return file_size
-"""Utility helpers for secure file system interactions."""
-from __future__ import annotations
-
-import os
-from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Union
-
-from config import StorageConfig
 
 PathLike = Union[str, os.PathLike]
 

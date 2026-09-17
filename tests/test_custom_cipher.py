@@ -262,7 +262,7 @@ class TestCipher512EncryptDecrypt:
         # Count different bits
         diff_bits = sum(bin(b1 ^ b2).count('1') for b1, b2 in zip(ciphertext1, ciphertext2))
 
-        # Avalanche effect: ~50% of bits should change (256 ± 50 bits for 512-bit block)
+        # Avalanche effect: ~50% of bits should change (256 +/- 50 bits for 512-bit block)
         assert diff_bits > 200 and diff_bits < 312, f"Avalanche effect insufficient: {diff_bits} bits changed"
 
 
