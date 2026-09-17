@@ -1,16 +1,20 @@
-# Secure Vault: 512-bit Multi-Layer Encryption System
+# Secure Vault: Experimental Multi-Layer Encryption System
 
-A revolutionary encryption system that combines multiple layers of security to provide theoretically unbreakable data protection. This system implements a 5-layer security model that includes information dispersal, one-time pad encryption, post-quantum cryptography, a custom 512-bit cipher, and secure storage.
+Secure Vault is a research and educational implementation of a multi-layer
+encryption system. It combines information dispersal, one-time-pad-style
+encryption, post-quantum cryptography, an experimental custom 512-bit cipher,
+and a storage layer. **The current source tree is not production-ready and
+must not be used to protect sensitive data.**
 
 ## 🔒 Security Features
 
-## 📣 Release Status
-- **Current Linux release:** v1.0.0 (2024-07-08)
-- **Release validation log:** [`logs/security_release_validation_2024-07-08.log`](../logs/security_release_validation_2024-07-08.log)
-- **Security release notes:** [`docs/SECURITY_RELEASE_NOTES_v1.md`](SECURITY_RELEASE_NOTES_v1.md)
+## 📣 Project Status
 
-The v1.0.0 milestone reflects the completion of the operational readiness,
-security hardening, and documentation work captured in `docs/v1_roadmap.md`.
+Secure Vault is under active development. The current source does not compile,
+the test suite does not complete collection, and no supported release is
+available. Feature descriptions in this README describe the intended design,
+not validated security guarantees. See [Current Development Status](#current-development-status)
+and the [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for known blockers.
 
 ### Automatic Backup Security
 - **End-to-End Encryption**: All backups are encrypted before being written to disk
@@ -230,67 +234,44 @@ key_manager = KeyManager({
 ### Documentation
 - `ARCHITECTURE.md`: Complete system architecture documentation
 - `SECURITY.md`: Security policy and best practices
-- `SecurityReview.md`: Detailed security analysis
-- `roadmap.md`: Development roadmap and progress tracking
+- `SECURITY_REVIEW.md`: Current security review and assurance status
+- `v1_roadmap.md`: Development roadmap and progress tracking
 
-## 🔍 Status
+## 🔍 Current Development Status
 
-### ✅ Fully Implemented (v0.2.0)
+The repository contains implementations and tests for the core encryption
+pipeline, authentication, recovery, backup, GUI, entropy, platform-parity, and
+key-management features. Their presence does not currently establish that they
+work together or meet their stated security properties.
 
-#### Core Encryption System
-- ✅ 5-layer encryption/decryption pipeline
-- ✅ Information Dispersal Algorithm (IDA) with Reed-Solomon encoding
-- ✅ One-Time Pad (OTP) with HSM integration
-- ✅ ML-KEM-1024 post-quantum cryptography
-- ✅ Custom 512-bit cipher (research/educational)
-- ✅ Secure storage layer with metadata
+### 🚫 Release blockers
 
-#### Security Infrastructure
-- ✅ Fortuna-like entropy accumulator with multiple pools
-- ✅ Hardware RNG integration (RDRAND/RDSEED, TPM)
-- ✅ Entropy quality monitoring and validation
-- ✅ Secure memory handling with automatic zeroing
-- ✅ Key management with automatic backup/recovery
+- `python -m compileall -q .` fails on multiple source and test files.
+- `pytest -q` stops during collection with ten errors and three skipped tests.
+- Tests require SciPy, but it is not declared in `requirements.txt`.
+- Qt tests require native graphical libraries that are not provisioned in the
+  assessment environment.
+- The GitHub Actions workflow performs dependency auditing only; it does not
+  compile the project, run tests, lint, or type-check the code.
 
-#### Utilities & Tools
-- ✅ Security audit logger with tamper-evident trails
-- ✅ Data integrity checker (SHA3-512, BLAKE2b, HMAC)
-- ✅ Cryptographic property validation (S-box, randomness)
-- ✅ Metadata manager with SQLite backend
-- ✅ Multi-algorithm compression (LZ4, Zstandard, zlib)
-- ✅ Comprehensive benchmarking suite
+### ✅ What is present
 
-#### Documentation & Testing
-- ✅ Complete architecture documentation (ARCHITECTURE.md)
-- ✅ Security policy and guidelines (SECURITY.md)
-- ✅ Test suite for custom cipher (300+ test cases)
-- ✅ Test suite for IDA layer (threshold crypto tests)
-- ✅ Test suite for OTP layer (perfect secrecy validation)
-- ✅ Entropy system tests (statistical validation)
-- ✅ Hardware RNG tests (platform-specific)
+- Implementations for the five-layer encryption design and associated storage.
+- Authentication, recovery, delegation, cloud-backup, MFA, and emergency-code
+  modules.
+- A Qt GUI and cross-platform integration helpers.
+- A broad test suite covering cryptography, storage, authentication, entropy,
+  security workflows, and GUI behavior.
+- Deployment, architecture, security, and operational documentation.
 
-### 🚧 In Progress (v0.3.0)
-- 🔄 Additional test coverage (test_mlkem.py, test_pipeline.py)
-- 🔄 CLI command modules (encrypt, decrypt, key management)
-- 🔄 Performance optimization for large files (>1GB)
-- 🔄 Enhanced error recovery mechanisms
-- 🔄 Key rotation automation
+### Next steps
 
-### 📅 Planned (v0.4.0+)
-- 📋 GUI interface development (Qt-based)
-- 📋 Cloud storage integration (S3, Azure Blob, GCP)
-- 📋 Multi-factor authentication
-- 📋 Distributed key management
-- 📋 Advanced steganography features
-- 📋 Mobile platform support (Android/iOS)
-- 📋 Browser extension for web integration
-
-### 🎯 Roadmap Completion
-- **Phase 1 (Security Hardening)**: 75% complete
-- **Phase 2 (Performance Enhancement)**: 60% complete
-- **Phase 3 (User Experience)**: 10% complete
-- **Phase 4 (Advanced Features)**: 5% complete
-- **Overall Project**: ~40% complete
+1. Repair the syntax and source-encoding errors.
+2. Make the dependency manifest complete and reproducible.
+3. Restore a passing test baseline, including headless GUI configuration.
+4. Add compilation, tests, linting, and type checking to pull-request CI.
+5. Complete security review and release validation before assigning a release
+   version.
 
 ## 📊 Benchmarks
 
@@ -340,7 +321,7 @@ Contributions are welcome! Please read our [Contribution Guidelines](CONTRIBUTIN
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) file for details.
 
 ## 📚 Resources
 
