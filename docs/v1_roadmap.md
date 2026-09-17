@@ -2,95 +2,115 @@
 
 This roadmap distills the remaining work required to confidently ship the Secure Vault v1 release on Linux. It synthesizes the launch track, defect triage, and operational readiness items that remain open across the codebase and associated process documents.
 
+## Validation snapshot
+
+Checkboxes represent current release evidence, not merely code or tests present
+in the repository. In the [Python CI results for commit `6ae6805`][current-ci],
+source compilation, fatal-error linting, and the narrow configured type check
+pass; the complete test and headless Qt jobs do not. Consequently, features
+that depend on runtime or GUI validation remain unchecked. This snapshot does
+not claim that security review is complete.
+
 ## 1. Product & Feature Completeness
 
 ### 1.1 Access & Authentication Experience
-- [x] Deliver an accessible login flow with a keyboard- and screen-reader-friendly PIN pad.
-- [x] Implement recovery safeguards (multi-step reset confirmation, verified notifications, and secure recovery data handling).
-- [x] Harden secure token storage for CLI workflows with encrypted persistence and automatic rotation.
-- [x] Maintain protected temporary session storage that survives application restarts without weakening guarantees.
-- [x] Add automatic clipboard clearing with configurable dwell times after sensitive copies.
-- [x] Provide inactivity lock functionality rather than relying solely on session expiry.
-- [x] Offer multiple MFA methods: TOTP, hardware security keys (WebAuthn/FIDO2), and biometric unlock where supported.
-- [x] Support secure account sharing and delegation flows for families and teams.
-- [x] Enable encrypted, user-controlled cloud backups of vault state.
-- [x] Issue printable emergency access codes for disaster recovery scenarios.
-- [x] Expand GUI regression automation to cover core authentication, recovery, and sharing flows.
+- [ ] Deliver an accessible login flow with a keyboard- and screen-reader-friendly PIN pad.
+- [ ] Implement recovery safeguards (multi-step reset confirmation, verified notifications, and secure recovery data handling).
+- [ ] Harden secure token storage for CLI workflows with encrypted persistence and automatic rotation.
+- [ ] Maintain protected temporary session storage that survives application restarts without weakening guarantees.
+- [ ] Add automatic clipboard clearing with configurable dwell times after sensitive copies.
+- [ ] Provide inactivity lock functionality rather than relying solely on session expiry.
+- [ ] Offer multiple MFA methods: TOTP, hardware security keys (WebAuthn/FIDO2), and biometric unlock where supported.
+- [ ] Support secure account sharing and delegation flows for families and teams.
+- [ ] Enable encrypted, user-controlled cloud backups of vault state.
+- [ ] Issue printable emergency access codes for disaster recovery scenarios.
+- [ ] Expand GUI regression automation to cover core authentication, recovery, and sharing flows.
 
-_Status:_ Completed via the accessible PIN pad widget integration (`LINUX_GUI/widgets/accessible_pin_pad.py`), updated login and recovery dialogs, CLI session persistence and inactivity unlock handling (`cli_auth.py`, `cli_session_store.py`), MFA orchestration (`mfa_manager.py`), backend session lock/restore support (`auth_manager.py`), delegation and recovery services (`delegation_manager.py`, `recovery_manager.py`, `cloud_backup.py`, `emergency_codes.py`), and expanded regression coverage validated with `pytest test_security_workflows.py test_gui_regression.py`.
+_Status:_ Implementations and regression tests are present, but the current
+full-suite and GUI CI jobs do not substantiate completion.
 
 ### 1.2 Security & Resilience Core
 #### Entropy & Randomness
-- [x] Broaden entropy sources (interrupt, network, disk, and user input timing).
-- [x] Extend statistical randomness analysis and benchmarking coverage.
-- [x] Document usage patterns and publish throughput/quality benchmarks per platform.
-- [x] Provide automatic failover when entropy sources degrade.
-- [x] Support hardware RNG instructions (RDRAND, RDSEED) in a portable manner.
-- [x] Improve entropy mixing and extraction algorithms.
+- [ ] Broaden entropy sources (interrupt, network, disk, and user input timing).
+- [ ] Extend statistical randomness analysis and benchmarking coverage.
+- [ ] Document usage patterns and publish throughput/quality benchmarks per platform.
+- [ ] Provide automatic failover when entropy sources degrade.
+- [ ] Support hardware RNG instructions (RDRAND, RDSEED) in a portable manner.
+- [ ] Improve entropy mixing and extraction algorithms.
 
 #### Cryptography & Key Management
-- [x] Finish ML-KEM hybrid integration and performance optimization work.
-- [x] Design and implement multi-party workflows (threshold signatures, distributed key generation).
-- [x] Document formal key ceremonies for high-security deployments.
-- [x] Add additional PQC options beyond ML-KEM.
+- [ ] Finish ML-KEM hybrid integration and performance optimization work.
+- [ ] Design and implement multi-party workflows (threshold signatures, distributed key generation).
+- [ ] Document formal key ceremonies for high-security deployments.
+- [ ] Add additional PQC options beyond ML-KEM.
 
 #### Performance & Parallelism
-- [x] Eliminate pipeline bottlenecks through safe parallelization.
-- [x] Reduce memory consumption for large file operations.
-- [x] Add hooks for CPU (e.g., AES-NI) and GPU acceleration.
+- [ ] Eliminate pipeline bottlenecks through safe parallelization.
+- [ ] Reduce memory consumption for large file operations.
+- [ ] Add hooks for CPU (e.g., AES-NI) and GPU acceleration.
 
-_Status:_ Completed via expanded entropy collectors and benchmarking helpers (`entropy_monitor.py`, `rng_manager.py`, `hardware_rng.py`), hybrid ML-KEM workflows and PQC registry enhancements (`mlkem_layer.py`, `pqc_registry.py`), distributed ceremony orchestration (`distributed_workflows.py`, `threshold_crypto.py`), updated pipeline integration (`pipeline.py`), and supporting documentation in `docs/security_resilience.md` and `docs/key_ceremony.md` with regression coverage (`test_security_resilience_phase12.py`).
+_Status:_ Implementations, documentation, and regression tests are present,
+but the current complete test job does not substantiate completion.
 
 ### 1.3 Platform Footprint
-- [x] Close remaining gaps with Windows/macOS parity per the platform roadmap (taskbar integration, keychain usage, native dialogs, etc.) to ensure cross-platform consistency during v1 support.
+- [ ] Close remaining gaps with Windows/macOS parity per the platform roadmap (taskbar integration, keychain usage, native dialogs, etc.) to ensure cross-platform consistency during v1 support.
 
-_Status:_ Completed via the platform parity service (`platform_parity.py`), CLI keychain integration (`cli_session_store.py`), and startup wiring in `main.py`, providing native taskbar/dock hooks, OS keychain storage, and dialog fallbacks that align Windows and macOS behavior with Linux.
+_Status:_ Platform-parity code is present, but the current artifact does not
+validate Windows or macOS behavior.
 
 ### 1.4 CLI UX & Documentation
-- [x] Provide comprehensive CLI help, configuration file support, progress indicators, and clearer error reporting.
-- [x] Complete user, developer, and API documentation alongside accessibility, localization/i18n, and screen-capture protection guidance.
-- [x] Strengthen UI automation and regression coverage.
+- [ ] Provide comprehensive CLI help, configuration file support, progress indicators, and clearer error reporting.
+- [ ] Complete user, developer, and API documentation alongside accessibility, localization/i18n, and screen-capture protection guidance.
+- [ ] Strengthen UI automation and regression coverage.
 
-_Status:_ Completed through the new CLI configuration loader and enriched help output (`cli_config.py`, `main.py`), expanded documentation (`docs/CLI_GUIDE.md`, updated `docs/README.md`), and additional GUI regression coverage verifying error accessibility (`tests/test_gui_regression.py`).
+_Status:_ CLI, documentation, and GUI-test changes are present, but current
+test and GUI results do not substantiate completion.
 
 ## 2. Release-Blocking Defects
 The following defects must be addressed before a production cut:
-- [x] Fix `SecureMemory.zero` dereferencing `None`.
-- [x] Add missing `threading` import in `hardware_rng`.
-- [x] Correct wiping behavior in the entropy accumulator.
-- [x] Add context-manager support to `secure_alloc`.
-- [x] Resolve the syntax error in `auth_database.py`.
+- [ ] Fix `SecureMemory.zero` dereferencing `None`.
+- [ ] Add missing `threading` import in `hardware_rng`.
+- [ ] Correct wiping behavior in the entropy accumulator.
+- [ ] Add context-manager support to `secure_alloc`.
+- [x] Resolve the syntax error in `auth_database.py` ([current-tree compile evidence][current-ci]).
 
 ## 3. Operational Readiness
 
 ### 3.1 Deployment Runbook Compliance
-- [x] Prepare hosts, install dependencies, and execute the full automated test suite.
-- [x] Complete the hardening checklist (systemd integration, secure configuration, and environment validation).
-- [x] Validate end-to-end operation post-deployment and capture verification logs.
+- [ ] Prepare hosts, install dependencies, and execute the full automated test suite.
+- [ ] Complete the hardening checklist (systemd integration, secure configuration, and environment validation).
+- [ ] Validate end-to-end operation post-deployment and capture verification logs.
 
-_Status:_ Completed on 2024-06-15 during the staging dry-run recorded in
-`docs/DEPLOYMENT_COMPLIANCE_REPORT.md` with supporting evidence in
-`logs/deployment_validation_2024-06-15.log`.
+_Historical evidence only:_ A 2024-06-15 staging dry-run is recorded in the
+[deployment compliance report](DEPLOYMENT_COMPLIANCE_REPORT.md) with its
+[checked-in transcript](../logs/deployment_validation_2024-06-15.log). It
+predates the current tree and does not close these current-release items.
 
 ### 3.2 Security Release Checklist
-- [x] Ensure all automated tests, static analysis, and dependency scans succeed.
-- [x] Obtain dual-review sign-off for changes.
-- [x] Update docs/changelog/version metadata for v1.
-- [x] Publish security-focused release notes covering cryptographic posture and residual risks.
+- [ ] Ensure all automated tests, static analysis, and dependency scans succeed.
+- [ ] Obtain dual-review sign-off for changes.
+- [ ] Update docs/changelog/version metadata for v1.
+- [ ] Publish security-focused release notes covering cryptographic posture and residual risks.
 
-_Status:_ CI run `ci/linux-v1-release/2024-07-08T09:30Z` executed the full validation
-stack (`pytest`, `flake8`, `mypy`, and `pip-audit`) with all checks passing. Detailed
-logs are captured in `logs/security_release_validation_2024-07-08.log` and summarized
-for release consumers in `docs/SECURITY_RELEASE_NOTES_v1.md`. Dual-review sign-off was
-completed by A. Rivera and S. Nakamura on 2024-07-07, and the release metadata is now
-reflected in `docs/README.md`.
+_Historical evidence only:_ The [2024-07-08 transcript][historical-security]
+and [historical release notes](SECURITY_RELEASE_NOTES_v1.md) report a successful
+validation stack and sign-off for an earlier tree. They do not override the
+failing current test/GUI jobs or establish current security-review completion.
 
 ### 3.3 Artifact Production
-- [x] Run `make release-artifacts` via the release pipeline script once prerequisites are complete.
+- [ ] Run `make release-artifacts` via the release pipeline script once prerequisites are complete.
 
-_Status:_ Completed on 2025-10-23 by executing `./release_pipeline.sh`, which regenerated the CycloneDX SBOM at
-`release_artifacts/sbom.xml` and archived the run output (including unpinned dependency warnings) in
-`logs/release_artifacts_2025-10-23.log` for release verification.
+_Historical evidence only:_ The [2025-10-23 artifact transcript][historical-artifacts]
+records a previous `./release_pipeline.sh` execution. It is not an artifact for
+commit `6ae6805` and does not satisfy the current release gate.
 
 ## 4. Status Tracking
 Use this checklist as a living document. Update completion boxes and add links to tickets, PRs, and validation evidence as work progresses towards the Linux v1 release.
+
+Secure Vault remains a research and educational project and is not approved for
+production or sensitive data. Keep this warning in place until all automated
+release gates pass and an independent cryptographic review is complete.
+
+[current-ci]: https://github.com/cowboydaniel/secure-vault/commit/6ae6805c9ba55f1290b7e9fe3b7ee7cc70b130f3/checks
+[historical-security]: ../logs/security_release_validation_2024-07-08.log
+[historical-artifacts]: ../logs/release_artifacts_2025-10-23.log
