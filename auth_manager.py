@@ -415,6 +415,25 @@ class AuthManager:
         user = self.user_manager.get_user_by_email(normalized_email)
         if not user:
             # Don't reveal that user doesn't exist
+            # Check global rate limits first to prevent enumeration
+            try:
+                self.rate_limiter.check_global_rate_limit(attempt_context)
+            except (RateLimitError, AccountLockedError):
+                # Record the rate-limited attempt
+                self.db.record_auth_attempt(
+                    user_id=None,
+                    email_hash=email_lookup_hash,
+                    success=False,
+                    attempt_type='pin',
+                    ip_address=ip_address,
+                    failure_reason='rate_limited',
+                    normalized_email_hash=attempt_context.normalized_email_hash,
+                    user_agent=user_agent,
+                    device_fingerprint=device_fingerprint,
+                    attempt_key=attempt_context.attempt_key,
+                )
+                raise
+            
             # Record attempt with email hash for tracking
             self.db.record_auth_attempt(
                 user_id=None,
@@ -440,7 +459,9 @@ class AuthManager:
         )
 
         try:
-            # Check rate limiting
+            # Check global rate limits (email-based, device-based)
+            self.rate_limiter.check_global_rate_limit(user_context)
+            # Check per-user rate limiting
             self.rate_limiter.check_rate_limit(user.user_id)
 
         except (RateLimitError, AccountLockedError) as e:
@@ -487,6 +508,7 @@ class AuthManager:
             except Exception as exc:
                 # PIN is incorrect - decryption failed
                 self.rate_limiter.record_failed_attempt(user.user_id)
+                self.rate_limiter.record_device_attempt(False, user_context)
 
                 self.db.record_auth_attempt(
                     user_id=user.user_id,

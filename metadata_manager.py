@@ -105,7 +105,7 @@ class MetadataManager:
 
     def __init__(
         self,
-        db_path: str = "metadata.db",
+        db_path: Optional[str] = None,
         encryption_key: Optional[bytes] = None,
         instance_guard: Optional[InstanceGuard] = None,
     ):
@@ -113,9 +113,16 @@ class MetadataManager:
         Initialize metadata manager
 
         Args:
-            db_path: Path to SQLite database
+            db_path: Path to SQLite database (defaults to metadata.db in SECURE_VAULT_STATE_DIR or current directory)
             encryption_key: Key for database encryption (future enhancement)
         """
+        if db_path is None:
+            state_dir = os.environ.get("SECURE_VAULT_STATE_DIR")
+            if state_dir:
+                db_path = os.path.join(state_dir, "metadata.db")
+            else:
+                db_path = "metadata.db"
+        
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self._instance_guard = instance_guard

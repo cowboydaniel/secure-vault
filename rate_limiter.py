@@ -18,7 +18,7 @@ import time
 import logging
 import threading
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -148,7 +148,7 @@ class RateLimiter:
         # Check if account is locked
         if self.db.is_account_locked(user_id):
             if user.lockout_until:
-                retry_after = (user.lockout_until - datetime.now()).total_seconds()
+                retry_after = (user.lockout_until - datetime.now(timezone.utc)).total_seconds()
                 if retry_after > 0:
                     raise AccountLockedError(
                         f"Account locked due to too many failed attempts. "
@@ -183,7 +183,7 @@ class RateLimiter:
         if context.attempt_key:
             state = self.db.get_device_attempt_state(context.attempt_key)
             if state and state.captcha_required_until:
-                retry_after = (state.captcha_required_until - datetime.now()).total_seconds()
+                retry_after = (state.captcha_required_until - datetime.now(timezone.utc)).total_seconds()
                 if retry_after > 0:
                     raise RateLimitError(
                         "Additional verification is required before trying again.",
@@ -298,7 +298,7 @@ class RateLimiter:
         if max_attempts <= 0 or window_seconds <= 0:
             return
 
-        window_start = datetime.now() - timedelta(seconds=window_seconds)
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         attempts = self.db.get_failed_attempts_since(
             window_start,
             email_hash=context.email_hash if use_email_hash else None,
@@ -315,7 +315,7 @@ class RateLimiter:
                 "Too many authentication failures. Please wait before trying again."
             )
 
-        retry_after = window_seconds - (datetime.now() - oldest.timestamp).total_seconds()
+        retry_after = window_seconds - (datetime.now(timezone.utc) - oldest.timestamp).total_seconds()
         retry_after = max(1.0, retry_after)
 
         if scope == "device":
@@ -453,7 +453,7 @@ class RateLimiter:
 
         # Calculate retry delay if applicable
         if user.is_locked and user.lockout_until:
-            retry_after = (user.lockout_until - datetime.now()).total_seconds()
+            retry_after = (user.lockout_until - datetime.now(timezone.utc)).total_seconds()
             status['retry_after_seconds'] = max(0.0, retry_after)
         elif user.failed_attempts > 0 and self.config.exponential_backoff:
             required_delay = self._calculate_backoff_delay(user.failed_attempts)

@@ -518,7 +518,7 @@ class AuthenticationTestCase(unittest.TestCase):
         email = "carol@example.com"
         alias = "carol+spam@example.com"
         password = "ComplexP@ss123!"
-        pin = "482951"
+        pin = "48295107"
         ip_address = "203.0.113.5"
         device_fingerprint = "device-test-001"
         user_agent = "SecureVaultTests/1.0"
@@ -533,7 +533,7 @@ class AuthenticationTestCase(unittest.TestCase):
             with self.assertRaises(InvalidCredentialsError):
                 self.auth_manager.authenticate_with_pin(
                     email=alias,
-                    pin="000000",
+                    pin="00000000",
                     ip_address=ip_address,
                     device_fingerprint=device_fingerprint,
                     user_agent=user_agent,
@@ -597,7 +597,7 @@ class AuthenticationTestCase(unittest.TestCase):
 
         email = "pool@example.com"
         password = "Str0ngPassword!"
-        pin = "123789"
+        pin = "12378901"
 
         self.user_manager.create_user(email=email, password=password, pin=pin)
 
@@ -624,7 +624,7 @@ class AuthenticationTestCase(unittest.TestCase):
         self.user_manager.create_user(
             email="owner@example.com",
             password="Secur3OwnerPass!",
-            pin="746291",
+            pin="74629101",
         )
 
         state_path = Path(self.state_dir) / InstanceGuard.STATE_FILENAME

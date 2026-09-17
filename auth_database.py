@@ -21,7 +21,7 @@ import queue
 import threading
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, List, Tuple, Iterator, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -270,23 +270,29 @@ class AuthDatabase:
 
     @staticmethod
     def _parse_datetime(value: Optional[Any]) -> Optional[datetime]:
-        """Coerce SQLite timestamp values into ``datetime`` objects."""
+        """Coerce SQLite timestamp values into ``datetime`` objects (UTC timezone-aware)."""
 
         if value is None:
             return None
 
         if isinstance(value, datetime):
-            return value
+            # If already timezone-aware, return as-is. If naive, assume UTC.
+            if value.tzinfo is not None:
+                return value
+            return value.replace(tzinfo=timezone.utc)
 
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value)
+            return datetime.fromtimestamp(value, tz=timezone.utc)
 
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value)
+                dt = datetime.fromisoformat(value)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             except ValueError:
                 try:
-                    return datetime.fromtimestamp(float(value))
+                    return datetime.fromtimestamp(float(value), tz=timezone.utc)
                 except (TypeError, ValueError):
                     logger.warning("Unable to parse datetime value: %s", value)
                     return None
@@ -874,7 +880,7 @@ class AuthDatabase:
 
     def lock_account(self, user_id: int, lockout_duration_minutes: int = 30):
         """Lock account for specified duration"""
-        lockout_until = datetime.now() + timedelta(minutes=lockout_duration_minutes)
+        lockout_until = datetime.now(timezone.utc) + timedelta(minutes=lockout_duration_minutes)
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -906,7 +912,7 @@ class AuthDatabase:
 
         # Check if locked and lockout hasn't expired
         if user.is_locked:
-            if user.lockout_until and datetime.now() >= user.lockout_until:
+            if user.lockout_until and datetime.now(timezone.utc) >= user.lockout_until:
                 # Lockout expired, auto-unlock
                 self.unlock_account(user_id)
                 return False
@@ -1002,9 +1008,9 @@ class AuthDatabase:
             return Session(
                 session_id=session_hash,
                 user_id=user_id,
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 expires_at=expires_at,
-                last_activity=datetime.now(),
+                last_activity=datetime.now(timezone.utc),
                 ip_address=ip_address,
                 user_agent=user_agent
             )
@@ -1292,7 +1298,7 @@ class AuthDatabase:
         """Update per-device counters and persist captcha requirements."""
 
         metadata_dict = metadata or {}
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -1383,8 +1389,8 @@ class AuthDatabase:
             return DeviceAttemptState(
                 attempt_key=row['attempt_key'],
                 attempt_count=row['attempt_count'],
-                first_attempt=self._parse_datetime(row['first_attempt']) or datetime.now(),
-                last_attempt=self._parse_datetime(row['last_attempt']) or datetime.now(),
+                first_attempt=self._parse_datetime(row['first_attempt']) or datetime.now(timezone.utc),
+                last_attempt=self._parse_datetime(row['last_attempt']) or datetime.now(timezone.utc),
                 captcha_required_until=self._parse_datetime(row['captcha_required_until']),
                 metadata=self._deserialize_metadata(row['metadata']),
             )
