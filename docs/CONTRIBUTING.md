@@ -29,10 +29,26 @@ Thank you for your interest in contributing to SecureVault! We welcome contribut
    pip install -r requirements-dev.txt
    ```
 
-4. Run tests:
+4. Run the same repository-level validation used by CI:
    ```bash
-   python -m pytest
+   make validate
    ```
+
+   This compiles every Python file, runs the complete suite and the focused Qt
+   suite with `QT_QPA_PLATFORM=offscreen`, then runs flake8 and mypy. The mypy
+   scope is temporarily limited to `auth_secrets.py`, which is the first clean
+   production module; the repository maintainers own expanding that scope, and
+   the limitation must be removed once the remaining production modules pass
+   mypy. Flake8 currently enforces syntax and fatal pyflakes checks (`E9`,
+   `F63`, and `F7`) across the repository. The maintainers also own that
+   temporary rule exclusion, which must be removed in favor of an unfiltered
+   `flake8 .` run once the existing style and undefined-name backlog is fixed.
+
+   Dependency auditing runs separately in GitHub Actions against every
+   supported requirements group: core, GUI, test, development, and optional
+   platform integrations. There are currently no vulnerability exclusions; any
+   future `pip-audit` ignore must name an owner and a concrete removal condition
+   next to the ignore.
 
 ## Code Style
 
