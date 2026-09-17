@@ -10,11 +10,13 @@ must not be used to protect sensitive data.**
 
 ## 📣 Project Status
 
-Secure Vault is under active development. The current source does not compile,
-the test suite does not complete collection, and no supported release is
-available. Feature descriptions in this README describe the intended design,
-not validated security guarantees. See [Current Development Status](#current-development-status)
-and the [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for known blockers.
+Secure Vault is under active development. The new Python 3.11 validation
+pipeline can compile and collect the current tree, but its test and headless-GUI
+jobs are not passing. No supported release is available. Feature descriptions
+in this README describe the intended design, not validated security guarantees.
+See [Current Development Status](#current-development-status) and
+[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for the current evidence and known
+blockers.
 
 ### Automatic Backup Security
 - **End-to-End Encryption**: All backups are encrypted before being written to disk
@@ -258,14 +260,23 @@ pipeline, authentication, recovery, backup, GUI, entropy, platform-parity, and
 key-management features. Their presence does not currently establish that they
 work together or meet their stated security properties.
 
-### 🚫 Release blockers
+### Current-tree validation (commit `6ae6805`)
 
-- `python -m compileall -q .` fails on multiple source and test files.
-- `pytest -q` stops during collection with ten errors and three skipped tests.
-- Qt tests require native graphical libraries that are not provisioned in the
-  assessment environment.
-- The GitHub Actions workflow performs dependency auditing only; it does not
-  compile the project, run tests, lint, or type-check the code.
+The [commit-specific Python CI results][current-ci] are the evidence for this
+snapshot. They replace the earlier assessment's syntax-error and collection-
+failure findings:
+
+- **Passed:** Python 3.11 source compilation, the configured fatal-error lint
+  check, and the configured type check.
+- **Not complete:** the full test job and the dedicated headless Qt job are not
+  passing. Test correctness and GUI behavior therefore remain unvalidated.
+- **Not assessed by Python CI:** an independent cryptographic security review.
+  Dependency audit results are reported by a separate workflow and are not a
+  substitute for that review.
+
+The lint job checks only `E9`, `F63`, and `F7`, and the type-check job checks
+only `auth_secrets.py`. A green result for either job must not be interpreted as
+repository-wide style or type assurance.
 
 ### ✅ What is present
 
@@ -279,10 +290,9 @@ work together or meet their stated security properties.
 
 ### Next steps
 
-1. Repair the syntax and source-encoding errors.
-2. Restore a passing test baseline, including headless GUI configuration.
-3. Add compilation, tests, linting, and type checking to pull-request CI.
-4. Complete security review and release validation before assigning a release
+1. Fix the failures reported by the full-suite and headless Qt jobs.
+2. Expand lint and type checking beyond their current narrow scopes.
+3. Complete an independent cryptographic review and release validation before assigning a release
    version.
 
 ## 📊 Benchmarks
@@ -348,3 +358,5 @@ For support, please open an issue on the GitHub repository.
 ---
 
 *This project is for educational and research purposes only. The authors make no warranties regarding the security of this implementation.*
+
+[current-ci]: https://github.com/cowboydaniel/secure-vault/commit/6ae6805c9ba55f1290b7e9fe3b7ee7cc70b130f3/checks
